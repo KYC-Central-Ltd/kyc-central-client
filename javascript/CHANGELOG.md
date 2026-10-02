@@ -53,9 +53,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   after a timeout or a 500/502/504, which could send a billed LLM call more than once.
   They are retried only when the connection was never established, or on 429/503 with
   `Retry-After`.
-- **Breaking:** Node 18 (end of life since April 2025) is no longer supported; the
-  package now requires Node 20 or later. This removes a fallback that leaked abort
-  listeners on a long-lived shared `signal`.
+- **Breaking:** Node 18 (end of life since April 2025) and Node 20 (end of life since
+  April 2026) are no longer supported; the package now requires Node 22 or later.
+  Dropping Node 18 removes a fallback that leaked abort listeners on a long-lived shared
+  `signal`. Node 20 goes because the test tooling no longer runs on it, so the package
+  can no longer be verified there.
 
 ### Fixed
 

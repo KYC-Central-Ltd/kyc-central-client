@@ -3,7 +3,7 @@
  * `types.ts`.
  *
  * Built on the platform `fetch`, so this package has no runtime dependencies and
- * runs unchanged on Node 20+, Deno, Bun, Cloudflare Workers and the browser.
+ * runs unchanged on Node 22+, Deno, Bun, Cloudflare Workers and the browser.
  */
 
 import {
@@ -269,7 +269,7 @@ export class Transport {
     const fetchImpl = options.fetch ?? globalThis.fetch;
     if (typeof fetchImpl !== 'function') {
       throw new Error(
-        'No global fetch available. Use Node 20 or later, or pass a `fetch` implementation.',
+        'No global fetch available. Use Node 22 or later, or pass a `fetch` implementation.',
       );
     }
     // Bound so that a global `fetch` keeps its expected `this`.

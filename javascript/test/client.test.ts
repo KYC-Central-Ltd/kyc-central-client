@@ -2,7 +2,7 @@
 
 import { readFileSync } from 'node:fs';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import {
   APIConnectionError,
@@ -258,7 +258,7 @@ describe('POST retry policy', () => {
 
   const ok = () => jsonResponse({ ok: true });
   const post = (client: KYCCentral) => client.docs.ask('hello');
-  const make = (fetch: ReturnType<typeof vi.fn>) =>
+  const make = (fetch: Mock) =>
     new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
   const fetchError = (code: string, message = 'boom') =>
     new TypeError('fetch failed', { cause: Object.assign(new Error(message), { code }) });

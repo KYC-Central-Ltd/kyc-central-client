@@ -37,7 +37,7 @@ npm run build          # tsup → dist/ (ESM + CJS + .d.ts)
 ## Rules specific to this package
 
 - **Zero runtime dependencies.** Platform `fetch` only. The package must keep working
-  on Node ≥ 20 (see `engines`), Deno, Bun, Workers and browsers. Guard any use of
+  on Node ≥ 22 (see `engines`), Deno, Bun, Workers and browsers. Guard any use of
   `process`, and feature-detect newer APIs.
 - Imports use explicit `.js` extensions (ESM output).
 - Method names are camelCase mirrors of the Python/Elixir snake_case names; option
