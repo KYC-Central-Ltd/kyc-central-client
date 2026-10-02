@@ -1,0 +1,41 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/python"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+    groups:
+      pip-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/javascript"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "mix"
+    directory: "/elixir"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+    groups:
+      mix-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
