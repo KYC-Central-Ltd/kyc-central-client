@@ -97,7 +97,8 @@ unless you are on `main` with no changes to tracked files and the tag does not a
 exist. It then:
 
 1. **Bumps all three versions** (`python/src/kyccentral/_version.py`,
-   `javascript/package.json` and `javascript/package-lock.json`, `elixir/mix.exs`).
+   `javascript/package.json`, `javascript/package-lock.json` and
+   `javascript/src/version.ts`, `elixir/mix.exs`).
 2. **Rolls all three changelogs**: the `## Unreleased` entries in each client's
    `CHANGELOG.md` move under a new `## X.Y.Z — YYYY-MM-DD` heading. A client with no
    entries gets the line "No changes; version aligned with the other clients."

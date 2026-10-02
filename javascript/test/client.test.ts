@@ -1,5 +1,7 @@
 /** Client construction, headers, URL building and retry behaviour. */
 
+import { readFileSync } from 'node:fs';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -9,6 +11,7 @@ import {
   DEFAULT_BASE_URL,
   KYCCentral,
   NotFoundError,
+  VERSION,
 } from '../src/index.js';
 import { BASE_URL, jsonResponse, mockFetch } from './helpers.js';
 
@@ -478,5 +481,46 @@ describe('response body handling', () => {
 
     await expect(client.ruleSets.list()).rejects.toBeInstanceOf(APIConnectionError);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('User-Agent', () => {
+  async function sentHeaders(options: { defaultHeaders?: Record<string, string> } = {}) {
+    const fetch = mockFetch([jsonResponse({})]);
+    await new KYCCentral({ baseUrl: BASE_URL, fetch, ...options }).health();
+    return (fetch.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
+  }
+
+  it('identifies the client outside browsers', async () => {
+    const headers = await sentHeaders();
+    expect(headers['User-Agent']).toMatch(/^kyccentral-js\/\d+\.\d+\.\d+ \(node\//);
+  });
+
+  it('is not sent where a browser `window` exists', async () => {
+    vi.stubGlobal('window', {});
+    try {
+      const headers = await sentHeaders();
+      expect(headers['User-Agent']).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('lets defaultHeaders override it', async () => {
+    const headers = await sentHeaders({ defaultHeaders: { 'User-Agent': 'my-app/1' } });
+    expect(headers['User-Agent']).toBe('my-app/1');
+  });
+
+  it('lets a differently-cased defaultHeaders entry override it', async () => {
+    const headers = await sentHeaders({ defaultHeaders: { 'user-agent': 'my-app/2' } });
+    expect(headers['user-agent']).toBe('my-app/2');
+    expect(headers['User-Agent']).toBeUndefined();
+  });
+
+  it('keeps VERSION in step with package.json', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      version: string;
+    };
+    expect(VERSION).toBe(pkg.version);
   });
 });

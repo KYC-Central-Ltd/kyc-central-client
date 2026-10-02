@@ -19,6 +19,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   timeout, if longer).
 - `RiskFlag.raw` and `RuleResult.raw` hold each entry's untouched payload, as in the
   Python and Elixir clients.
+- Requests from Node, Deno and Bun now send `User-Agent: kyccentral-js/<version> (…)`,
+  as the Python and Elixir clients do. Browsers and unidentified runtimes are
+  unchanged, because `User-Agent` there is forbidden or would need CORS approval.
 
 ### Changed
 

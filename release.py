@@ -20,11 +20,12 @@ What it does:
      - javascript/package.json             ("version": "X.Y.Z")
      - elixir/mix.exs                      (@version "X.Y.Z")
      - javascript/package-lock.json        (root version entries)
+     - javascript/src/version.ts           (VERSION = 'X.Y.Z', sent in User-Agent)
   4. Rolls each client's CHANGELOG.md: the body under `## Unreleased` moves under a
      new `## X.Y.Z — YYYY-MM-DD` heading and a fresh empty `## Unreleased` stays
      above it. An empty Unreleased section gets the line "No changes; version
      aligned with the other clients."
-  5. Commits the 4 version files and the 3 CHANGELOGs as `Release vX.Y.Z`.
+  5. Commits the 5 version files and the 3 CHANGELOGs as `Release vX.Y.Z`.
   6. Tags, then pushes the current branch (`main`) and the tag to origin.
   7. The v* tag triggers publish.yml, which publishes all three clients.
 
@@ -77,6 +78,7 @@ VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 PY_VERSION_RE = re.compile(r'__version__ = "([^"]+)"')
 JSON_VERSION_RE = re.compile(r'"version": "([^"]+)"')
 MIX_VERSION_RE = re.compile(r'@version "([^"]+)"')
+TS_VERSION_RE = re.compile(r"VERSION = '([^']+)'")
 
 EMPTY_CHANGELOG_LINE = "No changes; version aligned with the other clients."
 
@@ -99,6 +101,10 @@ def js_package_json(text: str, version: str) -> str:
 
 def elixir_mix_exs(text: str, version: str) -> str:
     return MIX_VERSION_RE.sub(f'@version "{version}"', text)
+
+
+def js_version_ts(text: str, version: str) -> str:
+    return TS_VERSION_RE.sub(f"VERSION = '{version}'", text, count=1)
 
 
 def npm_lockjack(text: str, version: str) -> str:
@@ -144,6 +150,7 @@ def roll_changelog(text: str, version: str, today: str) -> tuple[str, int]:
 PY_VER = Path("python/src/kyccentral/_version.py")
 JS_PKG = Path("javascript/package.json")
 JS_LOCK = Path("javascript/package-lock.json")
+JS_VERSION_TS = Path("javascript/src/version.ts")
 MIX_EXS = Path("elixir/mix.exs")
 CHANGELOGS = [
     Path("python/CHANGELOG.md"),
@@ -200,6 +207,7 @@ def main() -> None:
     # ---- 1. Validate inputs and compute every edit (no writes yet) ----
     for path, label in [
         (JS_PKG, "JavaScript package.json"),
+        (JS_VERSION_TS, "JavaScript src/version.ts"),
         (MIX_EXS, "Elixir mix.exs"),
     ]:
         if not path.exists():
@@ -216,6 +224,7 @@ def main() -> None:
 
     plan_version(PY_VER, python_version_file, PY_VERSION_RE)
     plan_version(JS_PKG, js_package_json, JSON_VERSION_RE)
+    plan_version(JS_VERSION_TS, js_version_ts, TS_VERSION_RE)
     plan_version(MIX_EXS, elixir_mix_exs, MIX_VERSION_RE)
     if JS_LOCK.exists():
         plan_version(JS_LOCK, npm_lockjack, JSON_VERSION_RE)

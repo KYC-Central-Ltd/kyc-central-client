@@ -12,6 +12,7 @@ import {
   APITimeoutError,
   statusErrorFromResponse,
 } from './errors.js';
+import { VERSION } from './version.js';
 
 /** Production API. Override with `baseUrl` or `KYCCENTRAL_BASE_URL`. */
 export const DEFAULT_BASE_URL = 'https://api.kyccentral.co.uk';
@@ -76,6 +77,33 @@ function readEnv(name: string): string | undefined {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
     ?.env;
   return env?.[name];
+}
+
+/** `node/20.1.0`, `deno/2.0.0` or `bun/1.1.0`, or undefined when the runtime is unknown. */
+function runtimeLabel(): string | undefined {
+  const g = globalThis as {
+    process?: { versions?: { node?: string } };
+    Deno?: { version?: { deno?: string } };
+    Bun?: { version?: string };
+  };
+  // Check Deno and Bun first: both expose a Node-compatible `process.versions.node`.
+  if (g.Deno?.version?.deno) return `deno/${g.Deno.version.deno}`;
+  if (g.Bun?.version) return `bun/${g.Bun.version}`;
+  if (g.process?.versions?.node) return `node/${g.process.versions.node}`;
+  return undefined;
+}
+
+/**
+ * `User-Agent` for server runtimes (Node, Deno, Bun).
+ *
+ * Skipped in browsers, which forbid or restrict setting it, and in any runtime that
+ * can't be identified (browser web workers have no `window` either): there it is a
+ * non-safelisted header that would add a CORS preflight requirement.
+ */
+function userAgent(): string | undefined {
+  if (typeof (globalThis as { window?: unknown }).window !== 'undefined') return undefined;
+  const runtime = runtimeLabel();
+  return runtime ? `kyccentral-js/${VERSION} (${runtime})` : undefined;
 }
 
 /** Encode query parameters, dropping unset ones and repeating array values. */
@@ -262,8 +290,13 @@ export class Transport {
   }
 
   private headers(hasBody: boolean): Record<string, string> {
+    const callerSetAgent = Object.keys(this.defaultHeaders).some(
+      (name) => name.toLowerCase() === 'user-agent',
+    );
+    const agent = callerSetAgent ? undefined : userAgent();
     const headers: Record<string, string> = {
       Accept: 'application/json',
+      ...(agent ? { 'User-Agent': agent } : {}),
       ...this.defaultHeaders,
     };
     if (hasBody) headers['Content-Type'] = 'application/json';

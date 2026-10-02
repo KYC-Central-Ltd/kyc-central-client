@@ -99,3 +99,5 @@ export type {
 } from './resources/analysis.js';
 
 export type { CharityOptions } from './resources/registries.js';
+
+export { VERSION } from './version.js';
