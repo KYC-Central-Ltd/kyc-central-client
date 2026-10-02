@@ -55,7 +55,7 @@ jobs:
         working-directory: python
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: python/coverage.xml
           flags: python

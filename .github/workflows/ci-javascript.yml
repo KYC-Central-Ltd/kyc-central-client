@@ -56,7 +56,7 @@ jobs:
         working-directory: javascript
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: javascript/coverage/lcov.info
           flags: javascript
