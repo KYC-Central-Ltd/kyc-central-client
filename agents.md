@@ -135,14 +135,15 @@ When a public endpoint is added, changed or removed in the backend:
 
 - CI: `.github/workflows/ci-{python,javascript,elixir}.yml` — run the full
   test + lint + format + type-check suite per language.
-- Publishing: a single `vX.Y.Z` git tag on `main` triggers `publish.yml`, which runs
-  the full suite for each client whose directory changed since the previous `v*` tag,
-  then publishes to PyPI (trusted publishing), npm (`--provenance`) or Hex
-  (`HEX_API_KEY`). Full process in `PUBLISHING.md`.
-- **Version bump discipline:** bump only the version of the clients that changed
-  (`python/src/kyccentral/_version.py`, `javascript/package.json`, `elixir/mix.exs`),
-  move `## Unreleased` entries under a new `## X.Y.Z — YYYY-MM-DD` heading, commit
-  `Release vX.Y.Z`, then tag and push.
+- Publishing: releases are **lockstep**. `python release.py X.Y.Z` (on `main`; try
+  `--dry-run` first) bumps all three clients to one version, rolls all three
+  `CHANGELOG.md` files, commits `Release vX.Y.Z`, tags and pushes. The `v*` tag triggers
+  `publish.yml`, which verifies each package version equals the tag, runs the full suite
+  for all three clients, then publishes to PyPI (trusted publishing), npm
+  (`--provenance`) and Hex (`HEX_API_KEY`). Full process in `PUBLISHING.md`.
+- **Version discipline:** all three clients always share one version. A client with no
+  changes gets a "No changes; version aligned" changelog entry. Never bump or tag by
+  hand; use `release.py`.
 
 ## Where to look next
 

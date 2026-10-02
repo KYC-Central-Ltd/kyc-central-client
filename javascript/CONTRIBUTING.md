@@ -72,9 +72,5 @@ Security issues go to <security@kyccentral.co.uk> instead — see [SECURITY.md](
 
 ## Releasing
 
-Maintainers only:
-
-1. Bump `version` in `package.json`.
-2. Move `## Unreleased` entries under a new version heading in `CHANGELOG.md`.
-3. Tag the commit `vX.Y.Z` and push the tag. The publish workflow builds, tests and
-   publishes to npm with provenance.
+Maintainers only: releases are cut from the monorepo with `release.py`, which versions
+all three clients together (see `PUBLISHING.md` at the repository root).
