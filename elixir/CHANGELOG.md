@@ -34,6 +34,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `KYC.assess(client, "")` (or a whitespace-only company number) now fails validation
+  with `:invalid_argument` and makes no request, as in the Python and JavaScript clients.
+- A numeric `job_id` in a `202` assessment response is now polled instead of failing
+  with `:invalid_argument`.
+- Path parameters containing a space are now encoded as `%20` rather than `+`.
 - An empty or whitespace-only API key (explicit or from `KYCCENTRAL_API_KEY`) is now
   treated as no key, instead of reporting the client as authenticated while sending no
   key.

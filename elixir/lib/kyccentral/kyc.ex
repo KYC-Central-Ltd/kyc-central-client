@@ -126,20 +126,30 @@ defmodule KYCCentral.KYC do
       cond do
         not queued?(payload) -> {:ok, Assessment.from_map(payload)}
         opts[:wait] == false -> {:ok, payload}
-        true -> await_job(client, payload["job_id"], opts)
+        true -> await_job(client, to_string(payload["job_id"]), opts)
       end
     end
   end
 
-  defp validate_selector(nil, nil) do
+  defp validate_selector(number, q) when is_binary(number) do
+    if String.trim(number) == "" do
+      validate_selector(nil, q)
+    else
+      validate_selector_pair(number, q)
+    end
+  end
+
+  defp validate_selector(number, q), do: validate_selector_pair(number, q)
+
+  defp validate_selector_pair(nil, nil) do
     {:error, Error.invalid_argument("Provide either a company number or :q.")}
   end
 
-  defp validate_selector(number, q) when is_binary(number) and is_binary(q) do
+  defp validate_selector_pair(number, q) when is_binary(number) and is_binary(q) do
     {:error, Error.invalid_argument("Provide either a company number or :q, not both.")}
   end
 
-  defp validate_selector(_number, _q), do: :ok
+  defp validate_selector_pair(_number, _q), do: :ok
 
   defp request_assessment(client, company_number, opts) do
     params = [

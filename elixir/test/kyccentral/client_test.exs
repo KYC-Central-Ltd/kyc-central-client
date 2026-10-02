@@ -124,6 +124,15 @@ defmodule KYCCentral.ClientTest do
       assert Stub.call(agent).url =~ "abc%2Fdef%2Bgh"
     end
 
+    test "encodes a space in a path segment as %20, not +" do
+      assert {:ok, "a%20b%2Fc"} = KYCCentral.Transport.segment("a b/c", "x")
+
+      {client, agent} = Stub.client([Stub.json(%{})])
+      assert {:ok, _} = KYCCentral.Companies.officer_appointments(client, "abc def")
+      assert Stub.call(agent).url =~ "abc%20def"
+      refute Stub.call(agent).url =~ "+"
+    end
+
     test "rejects blank path segments before making a request" do
       {client, agent} = Stub.client([Stub.json(%{})])
 

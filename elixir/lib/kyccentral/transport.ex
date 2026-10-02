@@ -356,7 +356,8 @@ defmodule KYCCentral.Transport do
   def segment(value, name) when is_binary(value) do
     case String.trim(value) do
       "" -> {:error, Error.invalid_argument("#{name} must be a non-empty string")}
-      trimmed -> {:ok, URI.encode_www_form(trimmed)}
+      # `encode_www_form/1` would turn a space into `+`, a literal plus in a path.
+      trimmed -> {:ok, URI.encode(trimmed, &URI.char_unreserved?/1)}
     end
   end
 

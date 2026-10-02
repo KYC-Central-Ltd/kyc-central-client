@@ -104,6 +104,19 @@ defmodule KYCCentral.KYCTest do
       assert Stub.call_count(agent) == 0
     end
 
+    test "rejects an empty or whitespace-only company number before any request" do
+      {client, agent} = Stub.client([Stub.json(Stub.assessment_payload())])
+
+      for blank <- ["", "   "] do
+        assert {:error, %Error{kind: :invalid_argument, message: message}} =
+                 KYCCentral.KYC.assess(client, blank)
+
+        assert message =~ "either"
+      end
+
+      assert Stub.call_count(agent) == 0
+    end
+
     test "assesses the top search result when given a name" do
       {client, agent} = Stub.client([Stub.json(Stub.assessment_payload())])
 
@@ -135,6 +148,23 @@ defmodule KYCCentral.KYCTest do
 
       assert Stub.call_count(agent) == 3
       assert Stub.path(agent, 1) == "/v1/jobs/job-123"
+    end
+
+    test "polls a job whose id is an integer" do
+      {client, agent} =
+        Stub.client([
+          Stub.json(%{"job_id" => 123, "status" => "queued"}, 202),
+          Stub.json(%{
+            "job_id" => 123,
+            "status" => "done",
+            "result" => Stub.assessment_payload()
+          })
+        ])
+
+      assert {:ok, %Assessment{company_name: "TESCO PLC"}} =
+               KYCCentral.KYC.assess(client, "00445790", poll_interval: 0)
+
+      assert Stub.path(agent, 1) == "/v1/jobs/123"
     end
 
     test "returns the raw envelope when wait is false" do
