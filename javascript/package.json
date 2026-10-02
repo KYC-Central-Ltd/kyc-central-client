@@ -1,6 +1,6 @@
 {
   "name": "@kyccentral/sdk",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Official JavaScript and TypeScript client for the KYC Central API — UK company KYC and AML risk assessment.",
   "keywords": [
     "kyc",

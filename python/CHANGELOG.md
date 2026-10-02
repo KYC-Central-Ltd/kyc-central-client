@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.11.0 — 2026-10-02
+
 ### Security
 
 - Redirects are no longer followed. `X-API-Key` is a custom header that the HTTP stack
