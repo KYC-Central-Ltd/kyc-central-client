@@ -40,7 +40,10 @@ directory.
 - Root files: `README.md` (overview), `PUBLISHING.md` (release process), `release.py`,
   `agents.md` (this file).
 
-`CLAUDE.md`, `GEMINI.md` and `.clinerules/cline.md` are stubs that point here.
+`CLAUDE.md`, `GEMINI.md` and `.clinerules/cline.md` are stubs that point here. Each
+language directory also has its own `agents.md` (layout, commands, language-specific
+rules) with a `CLAUDE.md` stub beside it. They travel with the package when it is
+split out to its public mirror.
 
 ## Shared design (preserve in every edit)
 
@@ -143,6 +146,8 @@ When a public endpoint is added, changed or removed in the backend:
 
 ## Where to look next
 
+- `python/agents.md`, `javascript/agents.md`, `elixir/agents.md` — per-package
+  layout, commands and rules for agents.
 - Root `README.md` — overview and the shared design in full.
 - `python/CONTRIBUTING.md`, `javascript/CONTRIBUTING.md`, `elixir/CONTRIBUTING.md` —
   per-language setup, house rules and release steps.
