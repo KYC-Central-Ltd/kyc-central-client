@@ -331,3 +331,47 @@ async def test_async_post_retry_after_and_502_policy() -> None:
         with pytest.raises(APIStatusError):
             await client.docs.ask("hi")
     assert route.call_count == 2
+
+
+@respx.mock
+def test_get_does_not_retry_when_retry_after_exceeds_max_backoff() -> None:
+    route = respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "60"}, json={"detail": "too many"}),
+            httpx.Response(200, json=[{"id": "default"}]),
+        ]
+    )
+    with KYCCentral(api_key="k", base_url=BASE_URL, max_retries=2) as client:
+        from kyccentral import RateLimitError
+
+        with pytest.raises(RateLimitError) as exc_info:
+            client.rule_sets.list()
+        assert exc_info.value.retry_after == 60.0
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_get_retries_when_retry_after_within_max_backoff() -> None:
+    route = respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "0"}, json={"detail": "try again"}),
+            httpx.Response(200, json=[{"id": "default"}]),
+        ]
+    )
+    with KYCCentral(api_key="k", base_url=BASE_URL, max_retries=2) as client:
+        assert client.rule_sets.list() == [{"id": "default"}]
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_503_does_not_retry_when_retry_after_exceeds_max_backoff() -> None:
+    route = respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        return_value=httpx.Response(503, headers={"Retry-After": "60"}, json={"detail": "down"})
+    )
+    with KYCCentral(api_key="k", base_url=BASE_URL, max_retries=2) as client:
+        from kyccentral import ServerError
+
+        with pytest.raises(ServerError) as exc_info:
+            client.rule_sets.list()
+        assert exc_info.value.status_code == 503
+    assert route.call_count == 1

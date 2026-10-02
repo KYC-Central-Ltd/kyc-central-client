@@ -65,7 +65,8 @@ in the other two.
   to completion and hands back a finished assessment, with an opt-out for callers who
   want to drive polling themselves.
 - **Identical retry policy.** `GET`: timeouts, connection failures and 408/429/5xx
-  retried with exponential backoff + jitter, honouring `Retry-After`. `POST`
+  retried with exponential backoff + jitter, honouring `Retry-After` ≤ 8 s (a longer one is
+  surfaced as the error with `retry_after` set, not retried). `POST`
   (non-idempotent: AI and batch endpoints): retried only when the connection was never
   established (refused/DNS, not a timeout) or on 429/503 with `Retry-After`; never after
   a timeout or 500/502/504. The AI endpoints default to a 120 s timeout (or the client

@@ -9,6 +9,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A `Retry-After` longer than 8 seconds is no longer cut to 8 seconds and retried
+  (which almost always hit the limit again); the rate-limit error is returned straight
+  away with `.retryAfter` set.
 - POST requests (AI analysis, docs assistant, batch screening) are no longer retried
   after a timeout or a 500/502/504, which could send a billed LLM call more than once.
   They are retried only when the connection was never established, or on 429/503 with

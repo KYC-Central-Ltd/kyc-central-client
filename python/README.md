@@ -253,7 +253,9 @@ Every `APIStatusError` carries `.status_code`, `.detail`, `.body` and `.headers`
 GETs retry timeouts, connection failures and retryable statuses (408, 429, 500, 502, 503,
 504) twice by default, with exponential backoff plus jitter, honouring `Retry-After`.
 POSTs are retried only when the connection was never established, or on 429/503 with a
-`Retry-After` header, so a slow AI call is never sent twice. Client errors like 401, 403,
+`Retry-After` header, so a slow AI call is never sent twice. A `Retry-After` longer than
+8 seconds is not waited out; the rate-limit error is returned immediately with
+`.retry_after` set, so you can schedule the retry yourself. Client errors like 401, 403,
 404 and 422 are never retried — they will not become true on a second attempt.
 
 The AI endpoints (`analysis.company`, `analysis.adverse_media_overview`,

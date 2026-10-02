@@ -73,20 +73,36 @@ def _clean_params(params: Mapping[str, Any] | None) -> dict[str, Any]:
     return cleaned
 
 
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    """Parse the ``Retry-After`` header as a numeric seconds value.
+
+    Returns the value if present and numeric, None otherwise. A numeric
+    Retry-After greater than the max backoff will not be waited out: the
+    response is surfaced to the caller immediately so they can schedule
+    the retry themselves.
+    """
+    raw = response.headers.get("Retry-After")
+    if raw:
+        try:
+            return max(0.0, float(raw))
+        except ValueError:
+            pass
+    return None
+
+
 def _retry_delay(attempt: int, response: httpx.Response | None) -> float:
     """Seconds to wait before the next attempt.
 
     Honours ``Retry-After`` when the API sends one (it does on 429), otherwise
     backs off exponentially with full jitter so that a fleet of clients recovering
-    from the same outage does not retry in lockstep.
+    from the same outage does not retry in lockstep. A Retry-After value greater
+    than the max backoff will not be waited out — the response is surfaced to the
+    caller with retry_after set, so they can schedule the retry themselves.
     """
     if response is not None:
-        raw = response.headers.get("Retry-After")
-        if raw:
-            try:
-                return max(0.0, min(float(raw), _MAX_BACKOFF))
-            except ValueError:
-                pass
+        retry_after = _retry_after_seconds(response)
+        if retry_after is not None:
+            return min(retry_after, _MAX_BACKOFF)
     ceiling = min(_INITIAL_BACKOFF * (2**attempt), _MAX_BACKOFF)
     return random.uniform(ceiling / 2, ceiling)
 
@@ -185,12 +201,20 @@ class _BaseTransport:
         when it certainly never reached the server (the connection could not be
         established, and it was not a timeout) or when a 429/503 carries
         ``Retry-After`` (the server is saying "not processed, come back later").
+
+        If a response has a Retry-After greater than the max backoff, it is not
+        retried — the error is surfaced immediately so the caller can schedule the
+        retry themselves.
         """
         if attempt >= self._config.max_retries:
             return False
         is_get = method.upper() == "GET"
         if response is not None:
             if response.status_code not in _RETRYABLE_STATUSES:
+                return False
+            # If Retry-After exceeds max backoff, don't retry: surface the error.
+            retry_after = _retry_after_seconds(response)
+            if retry_after is not None and retry_after > _MAX_BACKOFF:
                 return False
             if is_get:
                 return True

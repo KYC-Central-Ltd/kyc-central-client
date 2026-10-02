@@ -56,7 +56,8 @@ defmodule KYCCentral.Transport do
 
     case perform(client, method, url, body, timeout) do
       {:ok, %{status: status} = response} when status in @retryable_statuses ->
-        if retries < client.max_retries and retry_status?(method, response) do
+        if retries < client.max_retries and retry_status?(method, response) and
+             not long_retry_after?(response) do
           response |> retry_delay(retries) |> sleep()
           attempt(client, method, url, body, timeout, retries + 1)
         else
@@ -264,7 +265,8 @@ defmodule KYCCentral.Transport do
 
   # Honours `Retry-After` when the API sends one (it does on 429), otherwise backs
   # off exponentially with full jitter, so a fleet recovering from one outage does
-  # not retry in lockstep.
+  # not retry in lockstep. Long `Retry-After` values (exceeding max backoff) are not
+  # waited out; the error is returned to the caller instead.
   defp retry_delay(%{headers: headers}, attempt) do
     case Error.retry_after(headers) do
       nil -> jittered_backoff(attempt)
@@ -277,6 +279,16 @@ defmodule KYCCentral.Transport do
   defp jittered_backoff(attempt) do
     ceiling = min(@initial_backoff_ms * 2 ** attempt, @max_backoff_ms)
     round(ceiling / 2 + :rand.uniform() * (ceiling / 2))
+  end
+
+  # Check if a response has a `Retry-After` header longer than the max backoff.
+  # If so, the caller should not retry but instead get the error immediately,
+  # so they can schedule the retry themselves.
+  defp long_retry_after?(%{headers: headers}) do
+    case Error.retry_after(headers) do
+      nil -> false
+      seconds -> seconds * 1000 > @max_backoff_ms
+    end
   end
 
   defp sleep(0), do: :ok

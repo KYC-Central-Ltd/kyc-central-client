@@ -22,6 +22,7 @@ export const DEFAULT_MAX_RETRIES = 2;
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const INITIAL_BACKOFF_MS = 500;
 const MAX_BACKOFF_MS = 8_000;
+const MAX_BACKOFF_SECONDS = MAX_BACKOFF_MS / 1000;
 
 export const API_KEY_ENV = 'KYCCENTRAL_API_KEY';
 export const BASE_URL_ENV = 'KYCCENTRAL_BASE_URL';
@@ -96,18 +97,33 @@ export function buildQuery(params?: QueryParams): string {
 }
 
 /**
- * Milliseconds to wait before the next attempt.
- *
- * Honours `Retry-After` when present, otherwise backs off exponentially with
- * full jitter so a fleet recovering from one outage does not retry in lockstep.
+ * Extract numeric Retry-After value from response headers, in seconds.
+ * Returns undefined if absent or non-numeric.
  */
-function retryDelayMs(attempt: number, response?: Response): number {
-  const raw = response?.headers.get('Retry-After');
+function retryAfterSeconds(response: Response): number | undefined {
+  const raw = response.headers.get('Retry-After');
   if (raw) {
     const seconds = Number(raw);
     if (Number.isFinite(seconds)) {
-      return Math.max(0, Math.min(seconds * 1000, MAX_BACKOFF_MS));
+      return seconds;
     }
+  }
+  return undefined;
+}
+
+/**
+ * Milliseconds to wait before the next attempt.
+ *
+ * Honours `Retry-After` when present (up to the max backoff), otherwise backs off
+ * exponentially with full jitter so a fleet recovering from one outage does not retry
+ * in lockstep. Long `Retry-After` values (greater than the max backoff) are not waited
+ * out; instead, the response is surfaced to the caller immediately so they can schedule
+ * the retry themselves.
+ */
+function retryDelayMs(attempt: number, response?: Response): number {
+  const seconds = response ? retryAfterSeconds(response) : undefined;
+  if (seconds !== undefined) {
+    return Math.max(0, Math.min(seconds * 1000, MAX_BACKOFF_MS));
   }
   const ceiling = Math.min(INITIAL_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS);
   return ceiling / 2 + Math.random() * (ceiling / 2);
@@ -140,6 +156,9 @@ function isConnectFailure(error: unknown): boolean {
  * processed (and billed) even when the client gave up, so it is retried only when
  * the connection was certainly never established, or when the server answered
  * 429/503 with `Retry-After` (explicitly "not processed, come back later").
+ *
+ * When a Retry-After header exceeds the max backoff (8 seconds), the response is
+ * returned immediately so the caller can schedule the retry themselves.
  */
 function isSafeToRetry(
   method: string,
@@ -150,6 +169,13 @@ function isSafeToRetry(
   }
   const { response } = failure;
   if (!RETRYABLE_STATUSES.has(response.status)) return false;
+
+  // Long Retry-After values should not be waited out by retrying.
+  const retryAfter = retryAfterSeconds(response);
+  if (retryAfter !== undefined && retryAfter > MAX_BACKOFF_SECONDS) {
+    return false;
+  }
+
   if (method === 'GET') return true;
   return (
     (response.status === 429 || response.status === 503) && response.headers.has('Retry-After')

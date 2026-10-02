@@ -259,6 +259,9 @@ are retried only when the connection was never established, or on 429/503 with a
 `Retry-After` header, so a slow AI call is never sent twice. Client errors like 401, 403,
 404 and 422 are never retried.
 
+A `Retry-After` longer than 8 seconds is not waited out; the client surfaces the
+rate-limit error immediately with `.retryAfter` set so you can schedule the retry.
+
 The AI endpoints (`analysis.company`, `analysis.adverseMediaOverview`,
 `analysis.filingExtract`, `docs.ask`) default to a 120 s timeout, or the client's
 `timeoutMs` if that is longer. Override it per call:

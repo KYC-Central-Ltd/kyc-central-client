@@ -249,6 +249,8 @@ handle a failure locally.
 
 GETs retry timeouts, connection failures and retryable statuses (408, 429, 500, 502, 503,
 504) twice by default, with exponential backoff plus jitter, honouring `Retry-After`.
+A `Retry-After` longer than 8 seconds is not waited out; the rate-limit error is returned
+straight away with `:retry_after` set, so the caller can schedule the retry.
 POSTs are retried only when the connection was never established, or on 429/503 with
 `Retry-After`, so a slow AI call is never sent twice. Client errors like 401, 403, 404 and
 422 are never retried — they will not become true on a second attempt.

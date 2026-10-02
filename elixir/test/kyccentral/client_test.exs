@@ -263,5 +263,41 @@ defmodule KYCCentral.ClientTest do
       assert {:ok, [%{"id" => "default"}]} = KYCCentral.RuleSets.list(client)
       assert Stub.call_count(agent) == 2
     end
+
+    test "a GET with Retry-After exceeding max backoff (8s) is not retried" do
+      rate_limited = {429, Jason.encode!(%{"detail" => "too fast"}), %{"retry-after" => ["60"]}}
+
+      {client, agent} =
+        Stub.sequence_client([rate_limited, Stub.json([%{"id" => "default"}])],
+          max_retries: 2
+        )
+
+      assert {:error, %Error{kind: :rate_limit, retry_after: 60.0}} =
+               KYCCentral.RuleSets.list(client)
+
+      assert Stub.call_count(agent) == 1
+    end
+
+    test "a GET with Retry-After of 0 is retried" do
+      rate_limited = {429, Jason.encode!(%{"detail" => "too fast"}), %{"retry-after" => ["0"]}}
+
+      {client, agent} =
+        Stub.sequence_client([rate_limited, Stub.json([%{"id" => "default"}])],
+          max_retries: 2
+        )
+
+      assert {:ok, [%{"id" => "default"}]} = KYCCentral.RuleSets.list(client)
+      assert Stub.call_count(agent) == 2
+    end
+
+    test "a GET with 503 and Retry-After exceeding max backoff is not retried" do
+      busy = {503, Jason.encode!(%{"detail" => "busy"}), %{"retry-after" => ["60"]}}
+
+      {client, agent} =
+        Stub.sequence_client([busy, Stub.json([%{"id" => "default"}])], max_retries: 2)
+
+      assert {:error, %Error{status: 503}} = KYCCentral.RuleSets.list(client)
+      assert Stub.call_count(agent) == 1
+    end
   end
 end

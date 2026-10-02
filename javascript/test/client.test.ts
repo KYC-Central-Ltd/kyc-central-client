@@ -323,3 +323,52 @@ describe('POST retry policy', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('long Retry-After values', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does not retry a GET on 429 with Retry-After > 8 seconds', async () => {
+    const limited = new Response('{"detail": "Too many requests"}', {
+      status: 429,
+      headers: { 'content-type': 'application/json', 'Retry-After': '60' },
+    });
+    const fetch = mockFetch([limited, jsonResponse([])]);
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+
+    await expect(client.ruleSets.list()).rejects.toMatchObject({
+      statusCode: 429,
+      retryAfter: 60,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a GET on 429 with Retry-After <= 8 seconds', async () => {
+    const limited = new Response('{"detail": "Too many requests"}', {
+      status: 429,
+      headers: { 'content-type': 'application/json', 'Retry-After': '0' },
+    });
+    const fetch = mockFetch([limited, jsonResponse([])]);
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+
+    await expect(client.ruleSets.list()).resolves.toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a GET on 503 with Retry-After > 8 seconds', async () => {
+    const limited = new Response('{"detail": "Service Unavailable"}', {
+      status: 503,
+      headers: { 'content-type': 'application/json', 'Retry-After': '60' },
+    });
+    const fetch = mockFetch([limited, jsonResponse([])]);
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+
+    await expect(client.ruleSets.list()).rejects.toMatchObject({ statusCode: 503 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});

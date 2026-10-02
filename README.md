@@ -77,11 +77,12 @@ completion and hands back a finished assessment, with an opt-out for callers who
 drive the polling themselves.
 
 **Identical retry policy.** `GET`s retry timeouts, connection failures and 408/429/5xx
-with exponential backoff plus jitter, honouring `Retry-After`. `POST`s — the AI endpoints
-and batch screening — are retried only when the connection was never established, or on
-429/503 with `Retry-After`, so a slow LLM call is never sent (and billed) twice. The AI
-endpoints wait 120 seconds by default, overridable per call. Client errors — 401, 403,
-404, 422 — are never retried.
+with exponential backoff plus jitter, honouring a `Retry-After` of up to 8 seconds; a
+longer one is returned to the caller as a rate-limit error rather than retried early.
+`POST`s — the AI endpoints and batch screening — are retried only when the connection was
+never established, or on 429/503 with `Retry-After`, so a slow LLM call is never sent (and
+billed) twice. The AI endpoints wait 120 seconds by default, overridable per call. Client
+errors — 401, 403, 404, 422 — are never retried.
 
 **Anonymous use works.** Reference and lookup endpoints run without a key at a lower rate
 limit, so the libraries can be tried before signing up. Assessments and the AI endpoints
