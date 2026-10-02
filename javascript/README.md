@@ -135,6 +135,11 @@ assessment.checkedAt; // when this assessment ran
 assessment.dataFetchedAt; // how fresh the underlying registry data is
 ```
 
+Severities and risk levels are `'low'`, `'medium'`, `'high'`, `'critical'` or
+`'unknown'`. `'unknown'` is a value this client version doesn't recognise; it ranks
+above `'critical'` so `flagsAtOrAbove` never filters it out, and the original string is
+on `raw`.
+
 Helper functions keep the common checks short. They're free functions rather than
 methods, so an `Assessment` stays a plain object — safe to put in React state, pass
 through `structuredClone`, or `JSON.stringify` and back:

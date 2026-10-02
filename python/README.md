@@ -137,6 +137,10 @@ for flag in assessment:
     ...  # iterates flags
 ```
 
+Severities are `RiskLevel.LOW`, `MEDIUM`, `HIGH` and `CRITICAL`, plus `RiskLevel.UNKNOWN` for a
+value this client version does not recognise. `UNKNOWN` ranks above `CRITICAL`, so it is never
+filtered out by `flags_at_or_above`; the original string is on `flag.raw`.
+
 The evidence each rule was judged against is on the `*_summary` attributes —
 `officers_summary`, `psc_summary`, `sanctions_summary`, `charges_summary` and so on —
 and the untouched response body is always on `assessment.raw`, so a field this client

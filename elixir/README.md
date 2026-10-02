@@ -133,12 +133,15 @@ assessment.checked_at        # when this assessment ran
 assessment.data_fetched_at   # how fresh the underlying registry data is
 ```
 
-Severities and statuses are atoms — `:low`, `:medium`, `:high`, `:critical` and
-`:passed`, `:failed`, `:not_evaluated` — so they pattern-match cleanly:
+Severities and statuses are atoms — `:low`, `:medium`, `:high`, `:critical`,
+`:unknown` and `:passed`, `:failed`, `:not_evaluated` — so they pattern-match
+cleanly. `:unknown` is a severity or risk level this client version does not
+recognise; it ranks above `:critical`, so `flags_at_or_above/2` never filters it
+out, and the original string is on `:raw`:
 
 ```elixir
 case assessment.risk_level do
-  :critical -> escalate(assessment)
+  level when level in [:critical, :unknown] -> escalate(assessment)
   level when level in [:high, :medium] -> refer(assessment)
   :low -> approve(assessment)
 end

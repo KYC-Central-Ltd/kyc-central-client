@@ -1,7 +1,15 @@
 defmodule KYCCentral.RiskFlag do
   @moduledoc "A single risk signal raised against a company."
 
-  @type severity :: :low | :medium | :high | :critical
+  @typedoc """
+  A severity or risk level.
+
+  `:unknown` is a value this client version does not recognise (for example a
+  level added by a future API release). It ranks above `:critical`, so it is
+  never filtered out by `KYCCentral.Assessment.flags_at_or_above/2`. The original
+  string is on `:raw`.
+  """
+  @type severity :: :low | :medium | :high | :critical | :unknown
 
   @type t :: %__MODULE__{
           code: String.t(),
@@ -47,7 +55,7 @@ defmodule KYCCentral.Assessment do
 
   alias KYCCentral.{RiskFlag, RuleResult}
 
-  @severity_rank %{low: 0, medium: 1, high: 2, critical: 3}
+  @severity_rank %{low: 0, medium: 1, high: 2, critical: 3, unknown: 4}
 
   # Explicit lookup tables rather than `String.to_existing_atom/1`: that would
   # depend on these atoms already being loaded, which typespecs alone do not
@@ -180,7 +188,13 @@ defmodule KYCCentral.Assessment do
     Enum.filter(flags, &(&1.severity in severities))
   end
 
-  @doc "Flags at `severity` or more severe."
+  @doc """
+  Flags at `severity` or more severe.
+
+  A flag whose severity this client version does not recognise is `:unknown`,
+  which ranks above `:critical`, so it is never filtered out. The original
+  string is on the flag's `:raw`.
+  """
   @spec flags_at_or_above(t(), RiskFlag.severity()) :: [RiskFlag.t()]
   def flags_at_or_above(%__MODULE__{flags: flags}, severity) do
     threshold = rank(severity)
@@ -202,7 +216,7 @@ defmodule KYCCentral.Assessment do
   end
 
   @doc "Numeric severity, ascending. Useful for sorting."
-  @spec rank(RiskFlag.severity()) :: 0..3
+  @spec rank(RiskFlag.severity()) :: 0..4
   def rank(severity), do: Map.get(@severity_rank, severity, 0)
 
   defp to_flag(data) when is_map(data) do
@@ -227,13 +241,14 @@ defmodule KYCCentral.Assessment do
   end
 
   # A future API release may add a severity or status this client predates, so
-  # unknown values degrade rather than crashing the caller. The original string
-  # is still on `:raw`.
+  # unknown values degrade rather than crashing the caller. An unrecognised
+  # severity fails safe: it becomes `:unknown`, which ranks above `:critical`, so
+  # it is never filtered out as low risk. The original string is still on `:raw`.
   defp severity(value) when is_binary(value) do
-    Map.get(@severities, String.downcase(value), :low)
+    Map.get(@severities, String.downcase(value), :unknown)
   end
 
-  defp severity(_), do: :low
+  defp severity(_), do: :unknown
 
   defp status(value) when is_binary(value) do
     Map.get(@statuses, String.downcase(value), :not_evaluated)

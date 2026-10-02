@@ -15,6 +15,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- An unrecognised severity or risk level now maps to a new `unknown` level that ranks
+  above `critical`, instead of `low`, so a value this version doesn't know is never
+  filtered out by `flagsAtOrAbove`. The original string is still on `raw`.
 - A `Retry-After` longer than 8 seconds is no longer cut to 8 seconds and retried
   (which almost always hit the limit again); the rate-limit error is returned straight
   away with `.retryAfter` set.

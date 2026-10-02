@@ -73,8 +73,35 @@ def test_unknown_severity_does_not_crash_parsing(client: KYCCentral, assessment_
         return_value=httpx.Response(200, json=assessment_payload)
     )
     result = client.kyc.assess("00445790")
-    assert result.flags[0].severity is RiskLevel.LOW
+    assert result.flags[0].severity is RiskLevel.UNKNOWN
     assert result.flags[0].raw["severity"] == "catastrophic"
+
+
+def test_unrecognised_levels_fail_safe_to_unknown(assessment_payload) -> None:
+    assessment_payload["risk_level"] = "severe"
+    assessment_payload["flags"][1]["severity"] = "severe"
+    result = Assessment.from_dict(assessment_payload)
+    assert result.risk_level is RiskLevel.UNKNOWN
+    unknown_flag = result.flags[1]
+    assert unknown_flag.severity is RiskLevel.UNKNOWN
+    assert unknown_flag.raw["severity"] == "severe"
+    assert unknown_flag in result.flags_at_or_above(RiskLevel.HIGH)
+    assert unknown_flag in result.flags_at_or_above(RiskLevel.CRITICAL)
+    assert RiskLevel.UNKNOWN.rank > RiskLevel.CRITICAL.rank
+
+
+def test_missing_or_non_string_severity_is_unknown(assessment_payload) -> None:
+    del assessment_payload["risk_level"]
+    assessment_payload["flags"][0]["severity"] = None
+    assessment_payload["flags"][1]["severity"] = 3
+    result = Assessment.from_dict(assessment_payload)
+    assert result.risk_level is RiskLevel.UNKNOWN
+    assert [f.severity for f in result.flags] == [RiskLevel.UNKNOWN, RiskLevel.UNKNOWN]
+
+
+def test_known_severity_is_case_insensitive(assessment_payload) -> None:
+    assessment_payload["flags"][0]["severity"] = "HIGH"
+    assert Assessment.from_dict(assessment_payload).flags[0].severity is RiskLevel.HIGH
 
 
 def test_assess_requires_exactly_one_selector(client: KYCCentral) -> None:

@@ -52,14 +52,41 @@ defmodule KYCCentral.KYCTest do
       assert Assessment.partial?(assessment)
     end
 
-    test "tolerates a severity this client version predates" do
+    test "an unrecognised severity or risk level fails safe to :unknown" do
       payload = Stub.assessment_payload()
-      flags = List.update_at(payload["flags"], 0, &Map.put(&1, "severity", "catastrophic"))
+      flags = List.update_at(payload["flags"], 0, &Map.put(&1, "severity", "severe"))
+      payload = payload |> Map.put("flags", flags) |> Map.put("risk_level", "severe")
+      {client, _agent} = Stub.client([Stub.json(payload)])
+
+      assert {:ok, assessment} = KYCCentral.KYC.assess(client, "00445790")
+      assert assessment.risk_level == :unknown
+      assert hd(assessment.flags).severity == :unknown
+      assert hd(assessment.flags).raw["severity"] == "severe"
+      assert assessment.raw["risk_level"] == "severe"
+
+      assert "ACCOUNTS_OVERDUE" in Enum.map(
+               Assessment.flags_at_or_above(assessment, :high),
+               & &1.code
+             )
+
+      assert Enum.map(Assessment.flags_at_or_above(assessment, :critical), & &1.code) ==
+               [hd(assessment.flags).code]
+
+      assert Assessment.rank(:unknown) > Assessment.rank(:critical)
+    end
+
+    test "a missing or non-string severity is :unknown, a known one still maps" do
+      payload = Stub.assessment_payload()
+
+      flags =
+        payload["flags"]
+        |> List.update_at(0, &Map.delete(&1, "severity"))
+        |> List.update_at(1, &Map.put(&1, "severity", "HIGH"))
+
       {client, _agent} = Stub.client([Stub.json(Map.put(payload, "flags", flags))])
 
       assert {:ok, assessment} = KYCCentral.KYC.assess(client, "00445790")
-      assert hd(assessment.flags).severity == :low
-      assert hd(assessment.flags).raw["severity"] == "catastrophic"
+      assert Enum.map(assessment.flags, & &1.severity) == [:unknown, :high]
     end
 
     test "requires exactly one of a company number and :q" do

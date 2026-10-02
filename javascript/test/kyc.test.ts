@@ -64,8 +64,34 @@ describe('assess', () => {
     const client = clientWith([jsonResponse(payload)]);
 
     const assessment = await client.kyc.assess('00445790');
-    expect(assessment.flags[0]!.severity).toBe('low');
+    expect(assessment.flags[0]!.severity).toBe('unknown');
     expect(assessment.raw.flags[0].severity).toBe('catastrophic');
+  });
+
+  it('maps an unrecognised severity or risk level to unknown, ranked above critical', async () => {
+    const payload = assessmentPayload();
+    payload.risk_level = 'severe';
+    payload.flags[1].severity = 'severe';
+    payload.flags[0].severity = 'HIGH';
+    const assessment = await clientWith([jsonResponse(payload)]).kyc.assess('00445790');
+
+    expect(assessment.riskLevel).toBe('unknown');
+    expect(assessment.flags[1]!.severity).toBe('unknown');
+    expect(assessment.flags[0]!.severity).toBe('high');
+    expect(flagsAtOrAbove(assessment, 'high').map((f) => f.code)).toEqual([
+      'ACCOUNTS_OVERDUE',
+      'ADVERSE_MEDIA_UNCONFIRMED',
+    ]);
+    expect(flagsAtOrAbove(assessment, 'critical').map((f) => f.code)).toEqual([
+      'ADVERSE_MEDIA_UNCONFIRMED',
+    ]);
+  });
+
+  it('treats a missing severity as unknown', async () => {
+    const payload = assessmentPayload();
+    delete payload.flags[0].severity;
+    const assessment = await clientWith([jsonResponse(payload)]).kyc.assess('00445790');
+    expect(assessment.flags[0]!.severity).toBe('unknown');
   });
 
   it('requires exactly one of a company number and q', async () => {
