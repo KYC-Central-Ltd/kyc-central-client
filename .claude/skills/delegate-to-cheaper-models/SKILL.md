@@ -26,7 +26,7 @@ Do NOT delegate genuinely hard work that needs the strong model: novel design, s
    - `model: "sonnet"` — mid; use when light judgment is needed.
    - Keep the orchestrator (Opus) as planner/reviewer only.
 3. **Review before accepting.** Always verify the subagent's output — run tests, `grep`, or inspect the diff. Never accept unseen.
-4. **Parallelize independent work.** For 2+ independent tasks with no shared state, combine this with the `superpowers:dispatching-parallel-agents` skill and dispatch several cheap subagents at once.
+4. **Parallelize independent work.** For 2+ independent tasks with no shared state, dispatch several cheap subagents at once: use the `superpowers:dispatching-parallel-agents` skill if it is installed; otherwise issue all the Agent calls in a single message.
 
 ## Model picker
 
