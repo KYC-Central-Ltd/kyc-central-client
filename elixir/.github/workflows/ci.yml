@@ -116,8 +116,8 @@ jobs:
           otp-version: "27"
 
       - name: Start kyccentral from a fresh consumer app
-        working-directory: ${{ runner.temp }}
         run: |
+          cd "$RUNNER_TEMP"
           mix new consumer
           cd consumer
           cat > mix.exs <<EOF
