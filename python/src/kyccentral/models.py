@@ -284,6 +284,15 @@ class Assessment:
         """Iterating an assessment iterates its flags."""
         return iter(self.flags)
 
+    def __bool__(self) -> bool:
+        """An assessment is always truthy.
+
+        Without this, ``__len__`` would make a clean assessment (no flags) falsy, so
+        ``if assessment:`` would misfire, for example after ``assess(wait=False)``,
+        which returns ``Assessment | dict``.
+        """
+        return True
+
     def __len__(self) -> int:
         """The number of flags raised."""
         return len(self.flags)

@@ -30,6 +30,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Per-call `timeout` option on the AI endpoints, defaulting to 120 s (or the client
   timeout, if longer).
 
+### Fixed
+
+- A clean `Assessment` (no flags) is now truthy; `__len__` made it falsy, so
+  `if assessment:` misfired.
+
 ## 0.1.0 — 2026-08-13
 
 First public release.

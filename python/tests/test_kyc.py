@@ -219,3 +219,12 @@ async def test_async_queued_assessment_is_polled(
     result = await async_client.kyc.assess("00445790", poll_interval=0)
     assert isinstance(result, Assessment)
     assert result.risk_level is RiskLevel.MEDIUM
+
+
+def test_clean_assessment_is_truthy(assessment_payload) -> None:
+    assessment_payload["flags"] = []
+    result = Assessment.from_dict(assessment_payload)
+    assert len(result) == 0
+    assert result.is_clear
+    assert bool(result) is True
+    assert result
