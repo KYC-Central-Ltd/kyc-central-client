@@ -7,6 +7,38 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Security
+
+- Redirects are no longer followed. `X-API-Key` is a custom header that the HTTP stack
+  forwarded on cross-origin redirects, so a redirect to another host could leak the key. A
+  3xx now raises a status error carrying the `Location` header.
+
+### Changed
+
+- An unrecognised severity or risk level now maps to a new `unknown` level that ranks above
+  `critical`, instead of `low`, so a value this version doesn't know is never filtered out
+  by `flags_at_or_above`. The original string is still on `raw`.
+- A `Retry-After` longer than 8 seconds is no longer cut to 8 seconds and retried (which
+  almost always hit the limit again); the rate-limit error is returned straight away with
+  `.retry_after` set.
+- POST requests (AI analysis, docs assistant, batch screening) are no longer retried after
+  a timeout or a 500/502/504, which could send a billed LLM call more than once. They are
+  retried only when the connection was never established, or on 429/503 with Retry-After.
+
+### Added
+
+- Per-call `timeout` option on the AI endpoints, defaulting to 120 s (or the client
+  timeout, if longer).
+
+### Fixed
+
+- A clean `Assessment` (no flags) is now truthy; `__len__` made it falsy, so
+  `if assessment:` misfired.
+- An empty or whitespace-only API key (explicit or from `KYCCENTRAL_API_KEY`) is now treated
+  as no key, instead of reporting the client as authenticated while sending no key.
+- `poll_interval`/`poll_timeout` of zero or less are rejected up front instead of polling
+  the jobs endpoint in a tight loop.
+
 ## 0.1.0 — 2026-08-13
 
 First public release.

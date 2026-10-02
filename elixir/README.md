@@ -133,12 +133,15 @@ assessment.checked_at        # when this assessment ran
 assessment.data_fetched_at   # how fresh the underlying registry data is
 ```
 
-Severities and statuses are atoms — `:low`, `:medium`, `:high`, `:critical` and
-`:passed`, `:failed`, `:not_evaluated` — so they pattern-match cleanly:
+Severities and statuses are atoms — `:low`, `:medium`, `:high`, `:critical`,
+`:unknown` and `:passed`, `:failed`, `:not_evaluated` — so they pattern-match
+cleanly. `:unknown` is a severity or risk level this client version does not
+recognise; it ranks above `:critical`, so `flags_at_or_above/2` never filters it
+out, and the original string is on `:raw`:
 
 ```elixir
 case assessment.risk_level do
-  :critical -> escalate(assessment)
+  level when level in [:critical, :unknown] -> escalate(assessment)
   level when level in [:high, :medium] -> refer(assessment)
   :low -> approve(assessment)
 end
@@ -247,10 +250,21 @@ handle a failure locally.
 
 ## Retries, timeouts and TLS
 
-Timeouts, connection failures and retryable statuses (408, 429, 500, 502, 503, 504) are
-retried twice by default, with exponential backoff plus jitter, honouring `Retry-After`.
-Client errors like 401, 403, 404 and 422 are never retried — they will not become true on
-a second attempt.
+GETs retry timeouts, connection failures and retryable statuses (408, 429, 500, 502, 503,
+504) twice by default, with exponential backoff plus jitter, honouring `Retry-After`.
+A `Retry-After` longer than 8 seconds is not waited out; the rate-limit error is returned
+straight away with `:retry_after` set, so the caller can schedule the retry.
+POSTs are retried only when the connection was never established, or on 429/503 with
+`Retry-After`, so a slow AI call is never sent twice. Client errors like 401, 403, 404 and
+422 are never retried — they will not become true on a second attempt.
+
+The AI endpoints (`Analysis.company/3`, `Analysis.adverse_media_overview/3`,
+`Analysis.filing_extract/4`, `Docs.ask/3`) default to a 120 s timeout, or the client's
+`:receive_timeout` if that is longer. Override it per call:
+
+```elixir
+KYCCentral.Analysis.company(client, "00445790", receive_timeout: 180_000)
+```
 
 ```elixir
 KYCCentral.new(
@@ -277,6 +291,7 @@ http = fn request ->
          body: request.body,
          receive_timeout: request.receive_timeout,
          retry: false,
+         redirect: false,
          decode_body: false
        ) do
     {:ok, resp} -> {:ok, %{status: resp.status, headers: resp.headers, body: resp.body}}
@@ -291,6 +306,11 @@ The function receives `%{method:, url:, headers:, body:, receive_timeout:}` and 
 return `{:ok, %{status:, headers:, body:}}` or `{:error, reason}`. Bodies are decoded
 centrally, so returning the raw string is correct — this client's retry policy and error
 mapping then apply unchanged.
+
+The default transport never follows redirects, so the API key is never sent to another
+host; a 3xx surfaces as an `:unexpected_status` error with the `location` header. If you
+supply your own `:http` function, make sure it does not follow redirects, or at least does
+not forward `X-API-Key` to another origin.
 
 ## Calling from Erlang
 

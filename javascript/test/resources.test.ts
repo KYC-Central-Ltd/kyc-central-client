@@ -1,6 +1,6 @@
 /** Every resource method targets the URL and body the API documents. */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { KYCCentral } from '../src/index.js';
 import { BASE_URL, jsonResponse, mockFetch } from './helpers.js';
@@ -209,5 +209,59 @@ describe('request bodies', () => {
     const url = new URL(fetch.mock.calls[0]![0]);
     expect(url.searchParams.getAll('company_status')).toEqual(['active', 'liquidation']);
     expect(url.searchParams.get('company_name_includes')).toBe('tesco');
+  });
+});
+
+describe('AI endpoint timeouts', () => {
+  const calls: Array<[string, (c: KYCCentral, opts?: { timeoutMs?: number }) => Promise<unknown>]> =
+    [
+      ['analysis.company', (c, o) => c.analysis.company('00445790', o)],
+      ['analysis.adverseMediaOverview', (c, o) => c.analysis.adverseMediaOverview('00445790', o)],
+      ['analysis.filingExtract', (c, o) => c.analysis.filingExtract('00445790', 'tx1', o)],
+      ['docs.ask', (c, o) => c.docs.ask('hello', o)],
+    ];
+
+  const timeoutsFor = async (
+    run: (c: KYCCentral) => Promise<unknown>,
+    clientTimeout?: number,
+  ): Promise<number[]> => {
+    const spy = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      const fetch = mockFetch([jsonResponse({})]);
+      const c = new KYCCentral({
+        apiKey: 'k',
+        baseUrl: BASE_URL,
+        fetch,
+        timeoutMs: clientTimeout,
+      });
+      await run(c);
+      return spy.mock.calls.map((call) => call[0]);
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  it.each(calls)('%s defaults to 120 s', async (_name, call) => {
+    expect(await timeoutsFor((c) => call(c))).toEqual([120_000]);
+  });
+
+  it.each(calls)('%s honours a per-call timeout', async (_name, call) => {
+    expect(await timeoutsFor((c) => call(c, { timeoutMs: 5_000 }))).toEqual([5_000]);
+  });
+
+  it.each(calls)('%s keeps a larger client timeout', async (_name, call) => {
+    expect(await timeoutsFor((c) => call(c), 300_000)).toEqual([300_000]);
+  });
+
+  it.each(calls)('%s rejects a non-positive timeout without a request', async (_name, call) => {
+    const fetch = mockFetch([jsonResponse({})]);
+    const c = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch });
+    await expect(call(c, { timeoutMs: 0 })).rejects.toThrow(TypeError);
+    await expect(call(c, { timeoutMs: -1 })).rejects.toThrow(/greater than 0/);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('leaves other endpoints on the client timeout', async () => {
+    expect(await timeoutsFor((c) => c.ruleSets.list())).toEqual([30_000]);
   });
 });

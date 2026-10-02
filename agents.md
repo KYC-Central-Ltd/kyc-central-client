@@ -60,15 +60,25 @@ in the other two.
   upstream registry (Companies House, FCA Register, GLEIF, …) return decoded JSON
   as-is so new upstream fields reach callers without a client release. The untouched
   payload is kept on `raw`.
+- **Unknown severities fail safe.** A severity or risk level a client doesn't recognise
+  maps to `unknown`, which ranks **above** `critical`, so it is never filtered out by
+  `flags_at_or_above`. Never coerce an unknown value to `low`.
 - **Queued assessments are hidden.** A cold assessment can exceed an HTTP timeout, so
   the API may answer `202 Accepted` with a job id. Every client polls `/v1/jobs/{id}`
   to completion and hands back a finished assessment, with an opt-out for callers who
   want to drive polling themselves.
-- **Identical retry policy.** Timeouts, connection failures and 408/429/5xx retried
-  with exponential backoff + jitter, honouring `Retry-After`; 401, 403, 404, 422 are
-  never retried.
+- **Identical retry policy.** `GET`: timeouts, connection failures and 408/429/5xx
+  retried with exponential backoff + jitter, honouring `Retry-After` ≤ 8 s (a longer one is
+  surfaced as the error with `retry_after` set, not retried). `POST`
+  (non-idempotent: AI and batch endpoints): retried only when the connection was never
+  established (refused/DNS, not a timeout) or on 429/503 with `Retry-After`; never after
+  a timeout or 500/502/504. The AI endpoints default to a 120 s timeout (or the client
+  timeout, if longer), overridable per call. 401, 403, 404, 422 are never retried.
 - **Anonymous use works.** Reference and lookup endpoints run without a key at a lower
   rate limit; assessments and the AI endpoints require one.
+- **Redirects are never followed.** The key travels in the custom `X-API-Key` header,
+  which HTTP stacks forward on cross-origin redirects. Each client turns redirects off
+  in the HTTP stack it builds; a 3xx surfaces as a status error carrying `Location`.
 - **Minimal dependencies.** Python: `httpx`; JavaScript: nothing (platform `fetch`);
   Elixir: `jason` alone (OTP's `:httpc`). Each exposes a hook for a custom HTTP client.
 - **Tests are offline.** Every suite mocks or injects the transport — no network, no
@@ -135,14 +145,15 @@ When a public endpoint is added, changed or removed in the backend:
 
 - CI: `.github/workflows/ci-{python,javascript,elixir}.yml` — run the full
   test + lint + format + type-check suite per language.
-- Publishing: a single `vX.Y.Z` git tag on `main` triggers `publish.yml`, which runs
-  the full suite for each client whose directory changed since the previous `v*` tag,
-  then publishes to PyPI (trusted publishing), npm (`--provenance`) or Hex
-  (`HEX_API_KEY`). Full process in `PUBLISHING.md`.
-- **Version bump discipline:** bump only the version of the clients that changed
-  (`python/src/kyccentral/_version.py`, `javascript/package.json`, `elixir/mix.exs`),
-  move `## Unreleased` entries under a new `## X.Y.Z — YYYY-MM-DD` heading, commit
-  `Release vX.Y.Z`, then tag and push.
+- Publishing: releases are **lockstep**. `python release.py X.Y.Z` (on `main`; try
+  `--dry-run` first) bumps all three clients to one version, rolls all three
+  `CHANGELOG.md` files, commits `Release vX.Y.Z`, tags and pushes. The `v*` tag triggers
+  `publish.yml`, which verifies each package version equals the tag, runs the full suite
+  for all three clients, then publishes to PyPI (trusted publishing), npm
+  (`--provenance`) and Hex (`HEX_API_KEY`). Full process in `PUBLISHING.md`.
+- **Version discipline:** all three clients always share one version. A client with no
+  changes gets a "No changes; version aligned" changelog entry. Never bump or tag by
+  hand; use `release.py`.
 
 ## Where to look next
 

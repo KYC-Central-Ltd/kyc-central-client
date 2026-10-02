@@ -1,9 +1,10 @@
 name: Publish
 
 # Triggered by version tags pushed to the default branch.
-# A monorepo with three clients: a single v* tag publishes every client whose
-# directory changed since the previous v* tag. To force-publish everything,
-# delete the previous tag and retag.
+# A monorepo with three clients, versioned in lockstep: every release (cut with
+# `python release.py X.Y.Z`) bumps all three clients to the same version, so a v*
+# tag publishes all three, and each matrix leg first checks that its package
+# version equals the tag.
 #
 # Secrets / trust (configure once per repo, or in the publishing-org):
 #   HEX_API_KEY     — https://hex.pm/dashboard → API keys
@@ -36,39 +37,36 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # need full history to diff tags
 
-      - name: Determine previous tag
-        id: prev
-        run: |
-          # The most recent tag before the current one determines what changed.
-          tag=${GITHUB_REF_NAME#refs/tags/}
-          prev=$(git tag --sort=-creatordate --list "v*" | grep -v "^${tag}$" | head -n1)
-          echo "previous=${prev:-none}" >> "$GITHUB_OUTPUT"
-          echo "current=${tag}" >> "$GITHUB_OUTPUT"
-
-      - name: Check whether this client changed
-        id: changed
+      - name: Check version matches tag
         shell: bash
+        env:
+          LANGUAGE: ${{ matrix.language }}
         run: |
-          dir=${{ matrix.language }}
-          prev="${{ steps.prev.outputs.previous }}"
-          cur="${{ steps.prev.outputs.current }}"
-          if [[ "$prev" == "none" ]]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "No previous tag — doing a first publish."
-          elif git diff --quiet "$prev".."$cur" -- "$dir/" ; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No changes in $dir/ since $prev — skipping publish."
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Changes detected in $dir/ since $prev."
+          tag_version="${GITHUB_REF_NAME#v}"
+          case "$LANGUAGE" in
+            python)
+              file="python/src/kyccentral/_version.py"
+              found=$(sed -nE 's/^__version__ = "([^"]+)".*/\1/p' "$file" | head -n1)
+              ;;
+            javascript)
+              file="javascript/package.json"
+              found=$(node -p "require('./javascript/package.json').version")
+              ;;
+            elixir)
+              file="elixir/mix.exs"
+              found=$(sed -nE 's/^[[:space:]]*@version "([^"]+)".*/\1/p' "$file" | head -n1)
+              ;;
+            *)
+              echo "::error::Unknown language '$LANGUAGE'"
+              exit 1
+              ;;
+          esac
+          if [[ -z "$found" || "$found" != "$tag_version" ]]; then
+            echo "::error file=$file::Version mismatch: $file has '${found:-<not found>}' but the tag is '$GITHUB_REF_NAME' (expected $tag_version)."
+            exit 1
           fi
-
-      - name: Skip if unchanged
-        if: steps.changed.outputs.changed != 'true'
-        run: exit 0
+          echo "OK: $file version $found matches tag $GITHUB_REF_NAME"
 
       - name: Set up Python
         if: matrix.language == 'python'
@@ -100,9 +98,8 @@ jobs:
         if: matrix.language == 'elixir'
         uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.17"
-          otp-version: "27.3"
-          rebar3-mk: true
+          elixir-version: "1.20"
+          otp-version: "29"
 
       - name: Verify — Python
         if: matrix.language == 'python'

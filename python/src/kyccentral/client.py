@@ -33,7 +33,9 @@ class KYCCentral:
             always need a key.
         base_url: API root. Falls back to ``KYCCENTRAL_BASE_URL``, then to
             production.
-        timeout: Per-request timeout in seconds.
+        timeout: Per-request timeout in seconds. Ignored when ``http_client`` is
+            supplied; configure the timeout on that client. The per-call
+            ``timeout`` on the AI endpoints still applies.
         max_retries: Retries for timeouts, connection failures and retryable
             statuses (408, 429, 500, 502, 503, 504). Backoff is exponential with
             jitter and honours ``Retry-After``. Set to ``0`` to disable.
@@ -142,6 +144,10 @@ class AsyncKYCCentral:
 
     Mirrors :class:`KYCCentral` exactly — same namespaces, same method names,
     same arguments — with every call awaitable.
+
+    The ``timeout`` argument is ignored when ``http_client`` is supplied;
+    configure the timeout on that client. The per-call ``timeout`` on the AI
+    endpoints still applies.
 
     Example:
         >>> import asyncio

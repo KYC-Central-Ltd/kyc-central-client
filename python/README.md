@@ -137,6 +137,10 @@ for flag in assessment:
     ...  # iterates flags
 ```
 
+Severities are `RiskLevel.LOW`, `MEDIUM`, `HIGH` and `CRITICAL`, plus `RiskLevel.UNKNOWN` for a
+value this client version does not recognise. `UNKNOWN` ranks above `CRITICAL`, so it is never
+filtered out by `flags_at_or_above`; the original string is on `flag.raw`.
+
 The evidence each rule was judged against is on the `*_summary` attributes —
 `officers_summary`, `psc_summary`, `sanctions_summary`, `charges_summary` and so on —
 and the untouched response body is always on `assessment.raw`, so a field this client
@@ -250,10 +254,21 @@ Every `APIStatusError` carries `.status_code`, `.detail`, `.body` and `.headers`
 
 ## Retries and timeouts
 
-Timeouts, connection failures and retryable statuses (408, 429, 500, 502, 503, 504) are
-retried twice by default, with exponential backoff plus jitter, honouring `Retry-After`.
-Client errors like 401, 403, 404 and 422 are never retried — they will not become true
-on a second attempt.
+GETs retry timeouts, connection failures and retryable statuses (408, 429, 500, 502, 503,
+504) twice by default, with exponential backoff plus jitter, honouring `Retry-After`.
+POSTs are retried only when the connection was never established, or on 429/503 with a
+`Retry-After` header, so a slow AI call is never sent twice. A `Retry-After` longer than
+8 seconds is not waited out; the rate-limit error is returned immediately with
+`.retry_after` set, so you can schedule the retry yourself. Client errors like 401, 403,
+404 and 422 are never retried — they will not become true on a second attempt.
+
+The AI endpoints (`analysis.company`, `analysis.adverse_media_overview`,
+`analysis.filing_extract`, `docs.ask`) wait up to 120 seconds by default, or the client
+timeout if that is longer. Override it per call:
+
+```python
+client.analysis.company("00445790", timeout=240.0)  # seconds, this call only
+```
 
 ```python
 client = KYCCentral(
@@ -270,7 +285,14 @@ import httpx
 client = KYCCentral(http_client=httpx.Client(proxy="http://proxy.internal:8080"))
 ```
 
-You keep ownership of a client you supply — this library will not close it.
+The `timeout` argument is ignored when `http_client` is supplied; configure the timeout on
+that client. The per-call `timeout` on the AI endpoints still applies.
+
+You keep ownership of a client you supply — this library will not close it. The client
+it builds itself never follows redirects, so the API key is never sent to another host; a
+3xx surfaces as an `APIStatusError` with the `Location` header. If you supply your own
+`httpx` client, make sure it does not follow redirects (the httpx default) or at least does
+not forward `X-API-Key` to another origin.
 
 ## Rate limits and plans
 

@@ -14,8 +14,13 @@ export type JsonValue =
 /** A decoded JSON object, as returned by the registry-proxy endpoints. */
 export type JsonObject = Record<string, any>;
 
-/** Severity of a risk flag, and the overall risk level of an assessment. */
-export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
+/**
+ * Severity of a risk flag, and the overall risk level of an assessment.
+ *
+ * `'unknown'` is a value this client version does not recognise. It ranks above
+ * `'critical'` so it is never filtered out; the original string is on `raw`.
+ */
+export type RiskLevel = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
 
 /** Outcome of a single rule within an assessment. */
 export type RuleStatus = 'passed' | 'failed' | 'not_evaluated';
@@ -26,6 +31,7 @@ export const RISK_LEVEL_RANK: Record<RiskLevel, number> = {
   medium: 1,
   high: 2,
   critical: 3,
+  unknown: 4,
 };
 
 /** A single risk signal raised against a company. */
@@ -33,6 +39,8 @@ export interface RiskFlag {
   code: string;
   severity: RiskLevel;
   description: string;
+  /** The untouched flag object, so fields this version doesn't model are not lost. */
+  raw: JsonObject;
 }
 
 /** The per-rule breakdown of an assessment, including rules that passed. */
@@ -44,6 +52,8 @@ export interface RuleResult {
   status: RuleStatus;
   /** Why the rule failed, or why it could not be evaluated. */
   reason?: string | null;
+  /** The untouched rule result object, so fields this version doesn't model are not lost. */
+  raw: JsonObject;
 }
 
 /**
@@ -114,10 +124,15 @@ export interface QueuedJob {
 const RISK_LEVELS = new Set<string>(['low', 'medium', 'high', 'critical']);
 const RULE_STATUSES = new Set<string>(['passed', 'failed', 'not_evaluated']);
 
-/** Map an API severity string onto {@link RiskLevel}, tolerating unknown values. */
-function toRiskLevel(value: unknown, fallback: RiskLevel = 'low'): RiskLevel {
-  const normalised = String(value ?? '').toLowerCase();
-  return RISK_LEVELS.has(normalised) ? (normalised as RiskLevel) : fallback;
+/**
+ * Map an API severity string onto {@link RiskLevel}. Anything unrecognised (or
+ * missing) becomes `'unknown'`, which ranks above `'critical'`, so a value this
+ * version does not know can never make a result look lower-risk than it is.
+ */
+function toRiskLevel(value: unknown): RiskLevel {
+  if (typeof value !== 'string') return 'unknown';
+  const normalised = value.toLowerCase();
+  return RISK_LEVELS.has(normalised) ? (normalised as RiskLevel) : 'unknown';
 }
 
 function toRuleStatus(value: unknown): RuleStatus {
@@ -131,30 +146,38 @@ function asObject(value: unknown): JsonObject {
     : {};
 }
 
+/** The plain-object entries of a list; `null`, strings, arrays etc. are dropped. */
+function objectEntries(value: unknown): JsonObject[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (entry): entry is JsonObject =>
+          typeof entry === 'object' && entry !== null && !Array.isArray(entry),
+      )
+    : [];
+}
+
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
 }
 
 /** Convert a decoded `/v1/kyc/assess` body into a typed {@link Assessment}. */
 export function parseAssessment(data: JsonObject): Assessment {
-  const flags: RiskFlag[] = (Array.isArray(data.flags) ? data.flags : []).map(
-    (flag: JsonObject): RiskFlag => ({
-      code: String(flag?.code ?? ''),
-      severity: toRiskLevel(flag?.severity),
-      description: String(flag?.description ?? ''),
-    }),
-  );
+  const flags: RiskFlag[] = objectEntries(data.flags).map((flag): RiskFlag => ({
+    code: String(flag.code ?? ''),
+    severity: toRiskLevel(flag.severity),
+    description: String(flag.description ?? ''),
+    raw: flag,
+  }));
 
-  const ruleResults: RuleResult[] = (Array.isArray(data.rule_results) ? data.rule_results : []).map(
-    (rule: JsonObject): RuleResult => ({
-      code: String(rule?.code ?? ''),
-      name: String(rule?.name ?? ''),
-      description: String(rule?.description ?? ''),
-      severity: toRiskLevel(rule?.severity),
-      status: toRuleStatus(rule?.status),
-      reason: rule?.reason ?? null,
-    }),
-  );
+  const ruleResults: RuleResult[] = objectEntries(data.rule_results).map((rule): RuleResult => ({
+    code: String(rule.code ?? ''),
+    name: String(rule.name ?? ''),
+    description: String(rule.description ?? ''),
+    severity: toRiskLevel(rule.severity),
+    status: toRuleStatus(rule.status),
+    reason: rule.reason ?? null,
+    raw: rule,
+  }));
 
   return {
     companyNumber: String(data.company_number ?? ''),
@@ -220,7 +243,13 @@ export function isPartial(assessment: Assessment): boolean {
   );
 }
 
-/** Flags at `level` or more severe. */
+/**
+ * Flags at `level` or more severe.
+ *
+ * A flag whose severity is `'unknown'` (a value this client version does not
+ * recognise) ranks above `'critical'`, so it is never filtered out. The original
+ * string is on `flag.raw`.
+ */
 export function flagsAtOrAbove(assessment: Assessment, level: RiskLevel): RiskFlag[] {
   const threshold = RISK_LEVEL_RANK[level];
   return assessment.flags.filter((flag) => RISK_LEVEL_RANK[flag.severity] >= threshold);

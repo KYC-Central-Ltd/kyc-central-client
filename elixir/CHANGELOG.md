@@ -7,6 +7,48 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Security
+
+- Redirects are no longer followed. `X-API-Key` is a custom header that the HTTP stack
+  forwarded on cross-origin redirects, so a redirect to another host could leak the key.
+  A 3xx now raises a status error carrying the `Location` header.
+
+### Changed
+
+- An unrecognised severity or risk level now maps to a new `:unknown` level that ranks
+  above `:critical`, instead of `:low`, so a value this version doesn't know is never
+  filtered out by `flags_at_or_above/2`. The original string is still on `:raw`.
+- A `Retry-After` longer than 8 seconds is no longer cut to 8 seconds and retried (which
+  almost always hit the limit again); the rate-limit error is returned straight away with
+  `:retry_after` set.
+- POST requests (AI analysis, docs assistant, batch screening) are no longer retried
+  after a timeout or a 500/502/504, which could send a billed LLM call more than once.
+  They are retried only when the connection was never established, or on 429/503 with
+  `Retry-After`.
+
+### Added
+
+- Per-call `:receive_timeout` option on the AI endpoints (`Analysis.company/3`,
+  `Analysis.adverse_media_overview/3`, `Analysis.filing_extract/4`, `Docs.ask/3`),
+  defaulting to 120 s (or the client timeout, if longer).
+
+### Fixed
+
+- `:poll_interval`/`:poll_timeout` of zero or less (or not an integer) are rejected up
+  front instead of polling the jobs endpoint in a tight loop.
+- `KYC.assess(client, "")` (or a whitespace-only company number) now fails validation
+  with `:invalid_argument` and makes no request, as in the Python and JavaScript clients.
+- A numeric `job_id` in a `202` assessment response is now polled instead of failing
+  with `:invalid_argument`.
+- Path parameters containing a space are now encoded as `%20` rather than `+`.
+- An empty or whitespace-only API key (explicit or from `KYCCENTRAL_API_KEY`) is now
+  treated as no key, instead of reporting the client as authenticated while sending no
+  key.
+- The package no longer lists the test-only `:excoveralls` in `extra_applications`.
+  In 0.10.0 this stopped any application depending on `kyccentral` from starting
+  (`Could not start application excoveralls`). CI now starts the library from a
+  fresh consumer project to catch this class of mistake.
+
 ## 0.1.0 — 2026-08-13
 
 First public release.

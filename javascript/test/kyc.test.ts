@@ -64,8 +64,48 @@ describe('assess', () => {
     const client = clientWith([jsonResponse(payload)]);
 
     const assessment = await client.kyc.assess('00445790');
-    expect(assessment.flags[0]!.severity).toBe('low');
+    expect(assessment.flags[0]!.severity).toBe('unknown');
     expect(assessment.raw.flags[0].severity).toBe('catastrophic');
+  });
+
+  it('maps an unrecognised severity or risk level to unknown, ranked above critical', async () => {
+    const payload = assessmentPayload();
+    payload.risk_level = 'severe';
+    payload.flags[1].severity = 'severe';
+    payload.flags[0].severity = 'HIGH';
+    const assessment = await clientWith([jsonResponse(payload)]).kyc.assess('00445790');
+
+    expect(assessment.riskLevel).toBe('unknown');
+    expect(assessment.flags[1]!.severity).toBe('unknown');
+    expect(assessment.flags[0]!.severity).toBe('high');
+    expect(flagsAtOrAbove(assessment, 'high').map((f) => f.code)).toEqual([
+      'ACCOUNTS_OVERDUE',
+      'ADVERSE_MEDIA_UNCONFIRMED',
+    ]);
+    expect(flagsAtOrAbove(assessment, 'critical').map((f) => f.code)).toEqual([
+      'ADVERSE_MEDIA_UNCONFIRMED',
+    ]);
+  });
+
+  it('keeps raw on flags and rule results and drops non-object entries', async () => {
+    const payload = assessmentPayload();
+    payload.flags = [null, 'junk', ['x'], { code: 'X', extra: 1 }];
+    payload.rule_results = [null, 42, { code: 'R', extra: 2 }];
+    const assessment = await clientWith([jsonResponse(payload)]).kyc.assess('00445790');
+
+    expect(assessment.flags).toHaveLength(1);
+    expect(assessment.flags[0]!.code).toBe('X');
+    expect(assessment.flags[0]!.raw.extra).toBe(1);
+    expect(assessment.ruleResults).toHaveLength(1);
+    expect(assessment.ruleResults[0]!.code).toBe('R');
+    expect(assessment.ruleResults[0]!.raw.extra).toBe(2);
+  });
+
+  it('treats a missing severity as unknown', async () => {
+    const payload = assessmentPayload();
+    delete payload.flags[0].severity;
+    const assessment = await clientWith([jsonResponse(payload)]).kyc.assess('00445790');
+    expect(assessment.flags[0]!.severity).toBe('unknown');
   });
 
   it('requires exactly one of a company number and q', async () => {
@@ -100,7 +140,7 @@ describe('queued assessments', () => {
     const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch });
 
     const assessment = (await client.kyc.assess('00445790', {
-      pollIntervalMs: 0,
+      pollIntervalMs: 1,
     })) as Assessment;
 
     expect(assessment.companyName).toBe('TESCO PLC');
@@ -121,7 +161,7 @@ describe('queued assessments', () => {
       jsonResponse({ job_id: 'job-123', status: 'error', error: 'upstream exploded' }),
     ]);
 
-    await expect(client.kyc.assess('00445790', { pollIntervalMs: 0 })).rejects.toThrow(
+    await expect(client.kyc.assess('00445790', { pollIntervalMs: 1 })).rejects.toThrow(
       JobFailedError,
     );
   });
@@ -129,7 +169,7 @@ describe('queued assessments', () => {
   it('throws when the result has expired', async () => {
     const client = clientWith([queued(), jsonResponse({ job_id: 'job-123', status: 'done' })]);
 
-    await expect(client.kyc.assess('00445790', { pollIntervalMs: 0 })).rejects.toThrow(
+    await expect(client.kyc.assess('00445790', { pollIntervalMs: 1 })).rejects.toThrow(
       /no longer available/,
     );
   });
@@ -138,7 +178,24 @@ describe('queued assessments', () => {
     const client = clientWith([queued(), jsonResponse({ job_id: 'job-123', status: 'running' })]);
 
     await expect(
-      client.kyc.assess('00445790', { pollIntervalMs: 1, pollTimeoutMs: 0 }),
+      client.kyc.assess('00445790', { pollIntervalMs: 50, pollTimeoutMs: 1 }),
     ).rejects.toThrow(JobTimeoutError);
+  });
+});
+
+describe('polling parameter validation', () => {
+  it.each([
+    ['pollIntervalMs', 0],
+    ['pollIntervalMs', -1],
+    ['pollTimeoutMs', 0],
+    ['pollTimeoutMs', -1],
+  ])('rejects %s = %d before any request', async (name, value) => {
+    const fetch = mockFetch([jsonResponse(assessmentPayload())]);
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch });
+
+    await expect(client.kyc.assess('00445790', { [name]: value })).rejects.toThrow(
+      new TypeError(`${name} must be > 0`),
+    );
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

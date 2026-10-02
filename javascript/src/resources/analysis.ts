@@ -1,13 +1,22 @@
 /** AI analysis endpoints and the product documentation assistant. */
 
-import type { Transport } from '../transport.js';
+import { AI_TIMEOUT_MS, type Transport } from '../transport.js';
 import type { JsonObject } from '../types.js';
 import type { CallOptions } from './companies.js';
+
+/** Options shared by the AI endpoints. */
+export interface AICallOptions extends CallOptions {
+  /**
+   * Timeout for this call in milliseconds. Defaults to 120 000, or the client's
+   * `timeoutMs` if that is longer.
+   */
+  timeoutMs?: number;
+}
 
 const FILING_EXTRACT_MODES = ['extract', 'verify'] as const;
 export type FilingExtractMode = (typeof FILING_EXTRACT_MODES)[number];
 
-export interface AnalyseCompanyOptions extends CallOptions {
+export interface AnalyseCompanyOptions extends AICallOptions {
   /** Rule set whose findings should frame the analysis. */
   ruleSetId?: string;
   /** Override the AI provider, e.g. `"claude"`, `"gpt"`, `"gemini"`. */
@@ -24,13 +33,13 @@ export interface AnalyseCompanyOptions extends CallOptions {
   context?: JsonObject;
 }
 
-export interface AdverseMediaOverviewOptions extends CallOptions {
+export interface AdverseMediaOverviewOptions extends AICallOptions {
   provider?: string;
   /** Search results to summarise, as returned by `news.screenCompany()`. */
   results?: JsonObject;
 }
 
-export interface FilingExtractOptions extends CallOptions {
+export interface FilingExtractOptions extends AICallOptions {
   /** `"extract"` pulls structured data out; `"verify"` checks an existing extraction. */
   mode?: FilingExtractMode;
   provider?: string;
@@ -42,9 +51,23 @@ export interface DocsTurn {
   content: string;
 }
 
-export interface DocsAskOptions extends CallOptions {
+export interface DocsAskOptions extends AICallOptions {
   /** Prior turns for follow-up questions. At most 12. */
   history?: DocsTurn[];
+}
+
+/** `signal` plus the effective timeout: the per-call value, else max(client, 120 s). */
+function aiRequest(
+  transport: Transport,
+  options: AICallOptions,
+): { signal?: AbortSignal; timeoutMs: number } {
+  if (options.timeoutMs !== undefined && !(options.timeoutMs > 0)) {
+    throw new TypeError('timeoutMs must be greater than 0');
+  }
+  return {
+    signal: options.signal,
+    timeoutMs: options.timeoutMs ?? Math.max(transport.timeoutMs, AI_TIMEOUT_MS),
+  };
 }
 
 /**
@@ -77,7 +100,10 @@ export class Analysis {
     if (options.fcaFrn !== undefined) body.fca_frn = options.fcaFrn;
     if (options.context !== undefined) body.context = options.context;
 
-    return this.transport.post('/analysis/company', { body, signal: options.signal });
+    return this.transport.post('/analysis/company', {
+      body,
+      ...aiRequest(this.transport, options),
+    });
   }
 
   /** Summarise adverse media results into a short overview. */
@@ -91,7 +117,7 @@ export class Analysis {
 
     return this.transport.post('/analysis/adverse-media-overview', {
       body,
-      signal: options.signal,
+      ...aiRequest(this.transport, options),
     });
   }
 
@@ -115,7 +141,10 @@ export class Analysis {
     };
     if (options.provider !== undefined) body.provider = options.provider;
 
-    return this.transport.post('/analysis/filing-extract', { body, signal: options.signal });
+    return this.transport.post('/analysis/filing-extract', {
+      body,
+      ...aiRequest(this.transport, options),
+    });
   }
 }
 
@@ -135,6 +164,6 @@ export class Docs {
       }
       body.history = options.history;
     }
-    return this.transport.post('/docs/ask', { body, signal: options.signal });
+    return this.transport.post('/docs/ask', { body, ...aiRequest(this.transport, options) });
   }
 }

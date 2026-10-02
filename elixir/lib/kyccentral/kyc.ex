@@ -97,10 +97,10 @@ defmodule KYCCentral.KYC do
     * `:confirmed_psc_shareholder_links` — analyst-confirmed identity links, each
       formatted `"<psc name>||<shareholder name>"`.
     * `:wait` — poll a queued assessment to completion. Defaults to `true`.
-    * `:poll_interval` — milliseconds between polls. Defaults to
+    * `:poll_interval` — milliseconds between polls; a positive integer. Defaults to
       `#{@default_poll_interval}`.
-    * `:poll_timeout` — give up waiting after this many milliseconds. Defaults
-      to `#{@default_poll_timeout}`.
+    * `:poll_timeout` — give up waiting after this many milliseconds; a positive
+      integer. Defaults to `#{@default_poll_timeout}`.
 
   ## Examples
 
@@ -122,24 +122,48 @@ defmodule KYCCentral.KYC do
 
   defp do_assess(client, company_number, opts) do
     with :ok <- validate_selector(company_number, opts[:q]),
+         :ok <- validate_polling(opts),
          {:ok, payload} <- request_assessment(client, company_number, opts) do
       cond do
         not queued?(payload) -> {:ok, Assessment.from_map(payload)}
         opts[:wait] == false -> {:ok, payload}
-        true -> await_job(client, payload["job_id"], opts)
+        true -> await_job(client, to_string(payload["job_id"]), opts)
       end
     end
   end
 
-  defp validate_selector(nil, nil) do
+  # A zero or negative interval would poll the jobs endpoint in a tight loop.
+  defp validate_polling(opts) do
+    Enum.find_value([:poll_interval, :poll_timeout], :ok, fn key ->
+      case Keyword.fetch(opts, key) do
+        {:ok, value} when not (is_integer(value) and value > 0) ->
+          {:error, Error.invalid_argument("#{inspect(key)} must be a positive integer")}
+
+        _ ->
+          nil
+      end
+    end)
+  end
+
+  defp validate_selector(number, q) when is_binary(number) do
+    if String.trim(number) == "" do
+      validate_selector(nil, q)
+    else
+      validate_selector_pair(number, q)
+    end
+  end
+
+  defp validate_selector(number, q), do: validate_selector_pair(number, q)
+
+  defp validate_selector_pair(nil, nil) do
     {:error, Error.invalid_argument("Provide either a company number or :q.")}
   end
 
-  defp validate_selector(number, q) when is_binary(number) and is_binary(q) do
+  defp validate_selector_pair(number, q) when is_binary(number) and is_binary(q) do
     {:error, Error.invalid_argument("Provide either a company number or :q, not both.")}
   end
 
-  defp validate_selector(_number, _q), do: :ok
+  defp validate_selector_pair(_number, _q), do: :ok
 
   defp request_assessment(client, company_number, opts) do
     params = [
@@ -191,7 +215,7 @@ defmodule KYCCentral.KYC do
              "complete — re-running the same request will return the cached result once it does."
        }}
     else
-      if interval > 0, do: Process.sleep(interval)
+      Process.sleep(interval)
       poll(client, job_id, interval, timeout, deadline)
     end
   end

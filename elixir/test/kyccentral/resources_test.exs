@@ -209,6 +209,64 @@ defmodule KYCCentral.ResourcesTest do
 
       assert message =~ "at most 12"
     end
+
+    test "AI endpoints default to a 120 second timeout" do
+      {client, agent} = Stub.client([Stub.json(%{})])
+
+      assert {:ok, _} = KYCCentral.Analysis.company(client, "00445790")
+      assert {:ok, _} = KYCCentral.Analysis.adverse_media_overview(client, "00445790")
+      assert {:ok, _} = KYCCentral.Analysis.filing_extract(client, "00445790", "tx1")
+      assert {:ok, _} = KYCCentral.Docs.ask(client, "hi")
+
+      for index <- 0..3, do: assert(Stub.call(agent, index).receive_timeout == 120_000)
+    end
+
+    test "other endpoints keep the client timeout" do
+      {client, agent} = Stub.client([Stub.json(%{})])
+
+      assert {:ok, _} = KYCCentral.RuleSets.list(client)
+      assert Stub.call(agent).receive_timeout == 30_000
+    end
+
+    test "a per-call :receive_timeout overrides the default" do
+      {client, agent} = Stub.client([Stub.json(%{})])
+
+      assert {:ok, _} = KYCCentral.Analysis.company(client, "00445790", receive_timeout: 5_000)
+      assert {:ok, _} = KYCCentral.Docs.ask(client, "hi", receive_timeout: 5_000)
+      assert Stub.call(agent, 0).receive_timeout == 5_000
+      assert Stub.call(agent, 1).receive_timeout == 5_000
+    end
+
+    test "a client with a longer timeout keeps it for AI endpoints" do
+      {client, agent} = Stub.client([Stub.json(%{})], receive_timeout: 300_000)
+
+      assert {:ok, _} = KYCCentral.Analysis.company(client, "00445790")
+      assert Stub.call(agent).receive_timeout == 300_000
+    end
+
+    test "rejects an invalid per-call :receive_timeout before any request" do
+      {client, agent} = Stub.client([Stub.json(%{})])
+
+      for bad <- [0, -1, 1.5, "10"] do
+        assert {:error, %Error{kind: :invalid_argument}} =
+                 KYCCentral.Analysis.company(client, "00445790", receive_timeout: bad)
+
+        assert {:error, %Error{kind: :invalid_argument}} =
+                 KYCCentral.Analysis.adverse_media_overview(client, "00445790",
+                   receive_timeout: bad
+                 )
+
+        assert {:error, %Error{kind: :invalid_argument}} =
+                 KYCCentral.Analysis.filing_extract(client, "00445790", "tx1",
+                   receive_timeout: bad
+                 )
+
+        assert {:error, %Error{kind: :invalid_argument}} =
+                 KYCCentral.Docs.ask(client, "hi", receive_timeout: bad)
+      end
+
+      assert Stub.call_count(agent) == 0
+    end
   end
 
   test "advanced search repeats list filters" do

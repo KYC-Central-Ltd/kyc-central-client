@@ -137,7 +137,11 @@ defmodule KYCCentral do
     Transport.request(client, :get, "/health/data-sources", versioned: false)
   end
 
+  # An empty or whitespace-only key means "no key": it must not report the client
+  # as authenticated while sending nothing useful.
   defp presence(nil), do: nil
-  defp presence(""), do: nil
-  defp presence(value) when is_binary(value), do: value
+
+  defp presence(value) when is_binary(value) do
+    if String.trim(value) == "", do: nil, else: value
+  end
 end

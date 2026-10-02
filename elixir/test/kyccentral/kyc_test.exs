@@ -52,14 +52,41 @@ defmodule KYCCentral.KYCTest do
       assert Assessment.partial?(assessment)
     end
 
-    test "tolerates a severity this client version predates" do
+    test "an unrecognised severity or risk level fails safe to :unknown" do
       payload = Stub.assessment_payload()
-      flags = List.update_at(payload["flags"], 0, &Map.put(&1, "severity", "catastrophic"))
+      flags = List.update_at(payload["flags"], 0, &Map.put(&1, "severity", "severe"))
+      payload = payload |> Map.put("flags", flags) |> Map.put("risk_level", "severe")
+      {client, _agent} = Stub.client([Stub.json(payload)])
+
+      assert {:ok, assessment} = KYCCentral.KYC.assess(client, "00445790")
+      assert assessment.risk_level == :unknown
+      assert hd(assessment.flags).severity == :unknown
+      assert hd(assessment.flags).raw["severity"] == "severe"
+      assert assessment.raw["risk_level"] == "severe"
+
+      assert "ACCOUNTS_OVERDUE" in Enum.map(
+               Assessment.flags_at_or_above(assessment, :high),
+               & &1.code
+             )
+
+      assert Enum.map(Assessment.flags_at_or_above(assessment, :critical), & &1.code) ==
+               [hd(assessment.flags).code]
+
+      assert Assessment.rank(:unknown) > Assessment.rank(:critical)
+    end
+
+    test "a missing or non-string severity is :unknown, a known one still maps" do
+      payload = Stub.assessment_payload()
+
+      flags =
+        payload["flags"]
+        |> List.update_at(0, &Map.delete(&1, "severity"))
+        |> List.update_at(1, &Map.put(&1, "severity", "HIGH"))
+
       {client, _agent} = Stub.client([Stub.json(Map.put(payload, "flags", flags))])
 
       assert {:ok, assessment} = KYCCentral.KYC.assess(client, "00445790")
-      assert hd(assessment.flags).severity == :low
-      assert hd(assessment.flags).raw["severity"] == "catastrophic"
+      assert Enum.map(assessment.flags, & &1.severity) == [:unknown, :high]
     end
 
     test "requires exactly one of a company number and :q" do
@@ -74,6 +101,19 @@ defmodule KYCCentral.KYCTest do
                KYCCentral.KYC.assess(client, "00445790", q: "tesco")
 
       assert both =~ "not both"
+      assert Stub.call_count(agent) == 0
+    end
+
+    test "rejects an empty or whitespace-only company number before any request" do
+      {client, agent} = Stub.client([Stub.json(Stub.assessment_payload())])
+
+      for blank <- ["", "   "] do
+        assert {:error, %Error{kind: :invalid_argument, message: message}} =
+                 KYCCentral.KYC.assess(client, blank)
+
+        assert message =~ "either"
+      end
+
       assert Stub.call_count(agent) == 0
     end
 
@@ -104,10 +144,48 @@ defmodule KYCCentral.KYCTest do
         ])
 
       assert {:ok, %Assessment{company_name: "TESCO PLC"}} =
-               KYCCentral.KYC.assess(client, "00445790", poll_interval: 0)
+               KYCCentral.KYC.assess(client, "00445790", poll_interval: 1)
 
       assert Stub.call_count(agent) == 3
       assert Stub.path(agent, 1) == "/v1/jobs/job-123"
+    end
+
+    test "polls a job whose id is an integer" do
+      {client, agent} =
+        Stub.client([
+          Stub.json(%{"job_id" => 123, "status" => "queued"}, 202),
+          Stub.json(%{
+            "job_id" => 123,
+            "status" => "done",
+            "result" => Stub.assessment_payload()
+          })
+        ])
+
+      assert {:ok, %Assessment{company_name: "TESCO PLC"}} =
+               KYCCentral.KYC.assess(client, "00445790", poll_interval: 1)
+
+      assert Stub.path(agent, 1) == "/v1/jobs/123"
+    end
+
+    test "rejects non-positive polling parameters before any request" do
+      {client, agent} = Stub.client([queued()])
+
+      for {key, value} <- [
+            poll_interval: 0,
+            poll_interval: -5,
+            poll_interval: 1.5,
+            poll_timeout: 0,
+            poll_timeout: -1,
+            poll_timeout: "10"
+          ] do
+        assert {:error, %Error{kind: :invalid_argument, message: message}} =
+                 KYCCentral.KYC.assess(client, "00445790", [{key, value}])
+
+        assert message =~ inspect(key)
+        assert message =~ "positive integer"
+      end
+
+      assert Stub.call_count(agent) == 0
     end
 
     test "returns the raw envelope when wait is false" do
@@ -125,7 +203,7 @@ defmodule KYCCentral.KYCTest do
         ])
 
       assert {:error, %Error{kind: :job_failed, job_id: "job-123", message: message}} =
-               KYCCentral.KYC.assess(client, "00445790", poll_interval: 0)
+               KYCCentral.KYC.assess(client, "00445790", poll_interval: 1)
 
       assert message =~ "upstream exploded"
     end
@@ -135,7 +213,7 @@ defmodule KYCCentral.KYCTest do
         Stub.client([queued(), Stub.json(%{"job_id" => "job-123", "status" => "done"})])
 
       assert {:error, %Error{kind: :job_failed, message: message}} =
-               KYCCentral.KYC.assess(client, "00445790", poll_interval: 0)
+               KYCCentral.KYC.assess(client, "00445790", poll_interval: 1)
 
       assert message =~ "no longer available"
     end
@@ -145,7 +223,7 @@ defmodule KYCCentral.KYCTest do
         Stub.client([queued(), Stub.json(%{"job_id" => "job-123", "status" => "running"})])
 
       assert {:error, %Error{kind: :job_timeout, job_id: "job-123"}} =
-               KYCCentral.KYC.assess(client, "00445790", poll_interval: 1, poll_timeout: 0)
+               KYCCentral.KYC.assess(client, "00445790", poll_interval: 10, poll_timeout: 1)
     end
   end
 end

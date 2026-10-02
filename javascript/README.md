@@ -38,7 +38,7 @@ TESCO PLC → medium
 ```
 
 **Zero runtime dependencies.** Built on the platform `fetch`, so it runs unchanged on
-Node 18+, Deno, Bun, Cloudflare Workers, Vercel Edge and the browser. Ships ESM and CJS
+Node 20+, Deno, Bun, Cloudflare Workers, Vercel Edge and the browser. Ships ESM and CJS
 builds with full TypeScript types.
 
 ## Contents
@@ -65,7 +65,7 @@ npm install @kyccentral/sdk
 pnpm add @kyccentral/sdk    # or: yarn add @kyccentral/sdk
 ```
 
-Requires Node 18 or later (or any runtime with a global `fetch`).
+Requires Node 20 or later (or any runtime with a global `fetch`).
 
 ## Authentication
 
@@ -129,11 +129,16 @@ per process and reuse it.
 ```ts
 assessment.companyName; // "TESCO PLC"
 assessment.riskLevel; // "medium"
-assessment.flags; // [{ code: "ACCOUNTS_OVERDUE", severity: "high", ... }]
-assessment.ruleResults; // every rule, including the ones that passed
+assessment.flags; // [{ code: "ACCOUNTS_OVERDUE", severity: "high", description, raw }]
+assessment.ruleResults; // every rule, including the ones that passed (each has `raw` too)
 assessment.checkedAt; // when this assessment ran
 assessment.dataFetchedAt; // how fresh the underlying registry data is
 ```
+
+Severities and risk levels are `'low'`, `'medium'`, `'high'`, `'critical'` or
+`'unknown'`. `'unknown'` is a value this client version doesn't recognise; it ranks
+above `'critical'` so `flagsAtOrAbove` never filters it out, and the original string is
+on `raw`.
 
 Helper functions keep the common checks short. They're free functions rather than
 methods, so an `Assessment` stays a plain object — safe to put in React state, pass
@@ -252,9 +257,23 @@ client.sanctions.screenNames([]).catch((error) => console.log(error.message));
 
 ## Retries, timeouts and cancellation
 
-Timeouts, connection failures and retryable statuses (408, 429, 500, 502, 503, 504) are
-retried twice by default, with exponential backoff plus jitter, honouring `Retry-After`.
-Client errors like 401, 403, 404 and 422 are never retried.
+GET requests retry timeouts, connection failures and retryable statuses (408, 429, 500,
+502, 503, 504) twice by default, with exponential backoff plus jitter, honouring
+`Retry-After`. POST requests (the AI endpoints, the docs assistant and batch screening)
+are retried only when the connection was never established, or on 429/503 with a
+`Retry-After` header, so a slow AI call is never sent twice. Client errors like 401, 403,
+404 and 422 are never retried.
+
+A `Retry-After` longer than 8 seconds is not waited out; the client surfaces the
+rate-limit error immediately with `.retryAfter` set so you can schedule the retry.
+
+The AI endpoints (`analysis.company`, `analysis.adverseMediaOverview`,
+`analysis.filingExtract`, `docs.ask`) default to a 120 s timeout, or the client's
+`timeoutMs` if that is longer. Override it per call:
+
+```ts
+await client.analysis.company('00445790', { timeoutMs: 180_000 });
+```
 
 ```ts
 const client = new KYCCentral({
@@ -282,6 +301,11 @@ const client = new KYCCentral({
   },
 });
 ```
+
+The client never follows redirects (it passes `redirect: 'manual'`), so the API key is
+never sent to another host; a 3xx surfaces as an `APIStatusError` with the `Location`
+header. If you supply your own `fetch`, make sure it does not follow redirects, or at
+least does not forward `X-API-Key` to another origin.
 
 ## Rate limits and plans
 

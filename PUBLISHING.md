@@ -1,8 +1,10 @@
 # Publishing
 
 All three clients are published from this monorepo via a single `vX.Y.Z` git tag.
-The `publish.yml` workflow runs the full test suite for each client whose directory
-changed since the previous `v*` tag, then publishes it to its registry.
+Releases are **lockstep**: every release bumps all three clients to the same version,
+whether or not each one changed. The `publish.yml` workflow runs the full test suite
+for all three clients, then publishes each to its registry; each job first checks that
+its package version equals the tag.
 
 | Language | Package | Registry |
 |---|---|---|
@@ -82,30 +84,30 @@ present, the workflow's OIDC path is bypassed automatically.
 
 ## Per-release steps
 
-Publishing happens automatically when a `vX.Y.Z` tag is pushed to the default branch.
-Before you tag:
+Every release goes through `release.py`, run from the repository root on `main`.
+Preview it first:
 
-1. **Bump the version** in each client that has changes:
-   - Python: `src/kyccentral/_version.py` (single `__version__` string)
-   - JavaScript: `version` field in `javascript/package.json`
-   - Elixir: `@version` in `elixir/mix.exs`
-2. **Update the changelogs**: move the `## Unreleased` entries under a new
-   `## X.Y.Z — YYYY-MM-DD` heading in each changed client's `CHANGELOG.md`.
-3. **Commit** with a message like `Release vX.Y.Z`.
-4. **Tag** and **push** the tag:
+```bash
+python release.py X.Y.Z --dry-run   # prints every planned edit; no git calls, no writes
+python release.py X.Y.Z
+```
 
-   ```bash
-   git tag vX.Y.Z
-   git push origin vX.Y.Z
-   ```
+`X.Y.Z` must be strictly greater than the current version. The script refuses to run
+unless you are on `main` with no changes to tracked files and the tag does not already
+exist. It then:
 
-The `publish.yml` workflow starts automatically. It checks each of the three
-directories for changes since the previous `v*` tag; any that changed get their full
-test + lint + format + type-check suite run, and on green, the package is published.
+1. **Bumps all three versions** (`python/src/kyccentral/_version.py`,
+   `javascript/package.json`, `javascript/package-lock.json` and
+   `javascript/src/version.ts`, `elixir/mix.exs`).
+2. **Rolls all three changelogs**: the `## Unreleased` entries in each client's
+   `CHANGELOG.md` move under a new `## X.Y.Z — YYYY-MM-DD` heading. A client with no
+   entries gets the line "No changes; version aligned with the other clients."
+3. **Commits** the result as `Release vX.Y.Z`, **tags** it `vX.Y.Z`, and **pushes**
+   `main` and the tag.
 
-> **To force-publish everything** (e.g. a version bump with no code changes): delete
-> the previous tag and retag, or push a new tag — the workflow treats the first tag
-> ever as "everything changed".
+The `publish.yml` workflow starts automatically on the tag. It runs the full
+test + lint + format + type-check suite for all three clients; each job first checks
+that its package version equals the tag, and on green the package is published.
 
 ## What the publish workflow does per language
 
@@ -147,6 +149,6 @@ Wait 5–10 minutes, then check:
   specific version. The publish step runs in the default `:dev` env (not `prod`) so
   that `ex_doc`, declared `only: :dev` in `elixir/mix.exs`, is available and
   `mix hex.publish` can generate HexDocs via the `mix docs` task.
-- **Version bump discipline**: even if only one language changed, bump only that one's
-  version. The publish workflow skips clients whose directory is unchanged since the
-  previous tag.
+- **Version discipline**: all three clients always share one version. A client with
+  no changes still gets the bump, with a "No changes; version aligned" changelog entry;
+  `release.py` does this for you.

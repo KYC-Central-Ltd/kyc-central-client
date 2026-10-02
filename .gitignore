@@ -1,2 +1,7 @@
 private*
 */*.xcf
+# Claude Code: per-developer files, and handover notes that may describe unfixed issues
+.claude/handover/
+.claude/settings.local.json
+.claude/worktrees/
+CLAUDE.local.md

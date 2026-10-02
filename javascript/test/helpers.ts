@@ -17,19 +17,27 @@ export function jsonResponse(body: unknown, status = 200): Response {
 /**
  * A `fetch` stub that returns each response in turn.
  *
- * Responses are cloned per call so a single `Response` can be reused across
- * retries without its body stream being consumed twice. Once the queue is
- * exhausted the last response repeats, which keeps polling tests short.
+ * Each call gets a fresh copy of the queued response, so a single `Response` can be
+ * reused across retries. The copy is rebuilt from the body text rather than made with
+ * `Response.clone()`: a cloned body is a tee, and cancelling one branch (as the
+ * transport does when it retries) never settles while the other is unread. Once the
+ * queue is exhausted the last response repeats, which keeps polling tests short.
  */
 export function mockFetch(responses: Response[]): Mock {
   let index = 0;
-  return vi.fn(() => {
+  const bodies = new Map<Response, Promise<string>>();
+  return vi.fn(async () => {
     const response = responses[Math.min(index, responses.length - 1)];
     index += 1;
-    if (!response) {
-      return Promise.reject(new Error('mockFetch: no responses configured'));
-    }
-    return Promise.resolve(response.clone());
+    if (!response) throw new Error('mockFetch: no responses configured');
+    // Non-standard stand-ins (e.g. an opaque redirect) are handed back via `clone()`.
+    if (typeof response.text !== 'function') return response.clone();
+    if (!bodies.has(response)) bodies.set(response, response.clone().text());
+    const text = await bodies.get(response)!;
+    return new Response(response.status === 204 ? null : text, {
+      status: response.status,
+      headers: response.headers,
+    });
   });
 }
 

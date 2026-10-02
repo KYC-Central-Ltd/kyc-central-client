@@ -1,13 +1,17 @@
 /** Client construction, headers, URL building and retry behaviour. */
 
+import { readFileSync } from 'node:fs';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   APIConnectionError,
+  APIStatusError,
   APITimeoutError,
   DEFAULT_BASE_URL,
   KYCCentral,
   NotFoundError,
+  VERSION,
 } from '../src/index.js';
 import { BASE_URL, jsonResponse, mockFetch } from './helpers.js';
 
@@ -46,6 +50,23 @@ describe('construction', () => {
     process.env.KYCCENTRAL_API_KEY = 'env-key';
     const client = new KYCCentral({ apiKey: 'explicit', baseUrl: BASE_URL });
     expect(client.baseUrl).toBe(BASE_URL);
+  });
+
+  it.each([
+    ['an explicit empty key', { apiKey: '' }, undefined],
+    ['an explicit whitespace key', { apiKey: '   ' }, undefined],
+    ['an empty env var', {}, ''],
+    ['a whitespace env var', {}, '  '],
+    ['an explicit empty key over a set env var', { apiKey: '' }, 'env-key'],
+  ])('treats %s as no key', async (_label, options, env) => {
+    if (env !== undefined) process.env.KYCCENTRAL_API_KEY = env;
+    const fetch = mockFetch([jsonResponse({})]);
+    const client = new KYCCentral({ baseUrl: BASE_URL, fetch, ...options });
+    expect(client.isAuthenticated).toBe(false);
+
+    await client.health();
+    const init = fetch.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers).has('X-API-Key')).toBe(false);
   });
 
   it.each([
@@ -223,5 +244,283 @@ describe('retries', () => {
     );
     // An intentional cancellation must not be retried into three more requests.
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('POST retry policy', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const ok = () => jsonResponse({ ok: true });
+  const post = (client: KYCCentral) => client.docs.ask('hello');
+  const make = (fetch: ReturnType<typeof vi.fn>) =>
+    new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+  const fetchError = (code: string, message = 'boom') =>
+    new TypeError('fetch failed', { cause: Object.assign(new Error(message), { code }) });
+  const timeoutError = () => {
+    const error = new Error('The operation was aborted due to timeout');
+    error.name = 'TimeoutError';
+    return error;
+  };
+
+  it('does not retry a POST that timed out', async () => {
+    const fetch = vi.fn().mockRejectedValueOnce(timeoutError()).mockResolvedValue(ok());
+    await expect(post(make(fetch))).rejects.toBeInstanceOf(APITimeoutError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a POST when the connection was refused', async () => {
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(fetchError('ECONNREFUSED', 'connect ECONNREFUSED'))
+      .mockResolvedValue(ok());
+    await expect(post(make(fetch))).resolves.toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries a POST when every happy-eyeballs address failed to connect', async () => {
+    const cause = Object.assign(new AggregateError([]), {
+      errors: [{ code: 'ECONNREFUSED' }, { code: 'ENOTFOUND' }],
+    });
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed', { cause }))
+      .mockResolvedValue(ok());
+    await expect(post(make(fetch))).resolves.toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a POST when only some happy-eyeballs addresses were refused', async () => {
+    const cause = Object.assign(new AggregateError([]), {
+      errors: [{ code: 'ECONNREFUSED' }, { code: 'ETIMEDOUT' }],
+    });
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed', { cause }))
+      .mockResolvedValue(ok());
+    await expect(post(make(fetch))).rejects.toBeInstanceOf(APIConnectionError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry a POST that gets a 502', async () => {
+    const fetch = mockFetch([jsonResponse({ detail: 'bad gateway' }, 502), ok()]);
+    await expect(post(make(fetch))).rejects.toMatchObject({ statusCode: 502 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a POST on 503 with Retry-After', async () => {
+    const limited = new Response('{}', {
+      status: 503,
+      headers: { 'content-type': 'application/json', 'Retry-After': '0' },
+    });
+    const fetch = mockFetch([limited, ok()]);
+    await expect(post(make(fetch))).resolves.toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a POST on 503 without Retry-After', async () => {
+    const fetch = mockFetch([jsonResponse({ detail: 'down' }, 503), ok()]);
+    await expect(post(make(fetch))).rejects.toMatchObject({ statusCode: 503 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry a POST on an unsafe transport error', async () => {
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(fetchError('UND_ERR_SOCKET', 'other side closed'))
+      .mockResolvedValue(ok());
+    await expect(post(make(fetch))).rejects.toBeInstanceOf(APIConnectionError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('still retries a GET that times out', async () => {
+    const fetch = vi.fn().mockRejectedValueOnce(timeoutError()).mockResolvedValue(jsonResponse([]));
+    await expect(make(fetch).ruleSets.list()).resolves.toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('long Retry-After values', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does not retry a GET on 429 with Retry-After > 8 seconds', async () => {
+    const limited = new Response('{"detail": "Too many requests"}', {
+      status: 429,
+      headers: { 'content-type': 'application/json', 'Retry-After': '60' },
+    });
+    const fetch = mockFetch([limited, jsonResponse([])]);
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+
+    await expect(client.ruleSets.list()).rejects.toMatchObject({
+      statusCode: 429,
+      retryAfter: 60,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a GET on 429 with Retry-After <= 8 seconds', async () => {
+    const limited = new Response('{"detail": "Too many requests"}', {
+      status: 429,
+      headers: { 'content-type': 'application/json', 'Retry-After': '0' },
+    });
+    const fetch = mockFetch([limited, jsonResponse([])]);
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+
+    await expect(client.ruleSets.list()).resolves.toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a GET on 503 with Retry-After > 8 seconds', async () => {
+    const limited = new Response('{"detail": "Service Unavailable"}', {
+      status: 503,
+      headers: { 'content-type': 'application/json', 'Retry-After': '60' },
+    });
+    const fetch = mockFetch([limited, jsonResponse([])]);
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+
+    await expect(client.ruleSets.list()).rejects.toMatchObject({ statusCode: 503 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('redirects', () => {
+  it('does not follow a 3xx and surfaces it as a status error', async () => {
+    const fetch = mockFetch([
+      new Response(null, { status: 302, headers: { location: 'https://evil.example/' } }),
+    ]);
+    const client = new KYCCentral({ apiKey: 'test-key', baseUrl: BASE_URL, fetch });
+
+    const error = await client.health().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(APIStatusError);
+    expect((error as APIStatusError).statusCode).toBe(302);
+    expect((error as APIStatusError).headers.get('location')).toBe('https://evil.example/');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const init = fetch.mock.calls[0]?.[1] as RequestInit;
+    expect(init.redirect).toBe('manual');
+  });
+
+  it('raises on a browser opaque redirect without retrying', async () => {
+    const opaque = {
+      type: 'opaqueredirect',
+      status: 0,
+      ok: false,
+      headers: new Headers(),
+      clone() {
+        return this;
+      },
+    } as unknown as Response;
+    const fetch = mockFetch([opaque]);
+    const client = new KYCCentral({ apiKey: 'test-key', baseUrl: BASE_URL, fetch });
+
+    const error = await client.health().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(APIStatusError);
+    expect((error as APIStatusError).statusCode).toBe(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('response body handling', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function fakeResponse(status: number, text: () => Promise<string>, cancel = vi.fn()): Response {
+    return {
+      status,
+      ok: status >= 200 && status < 300,
+      type: 'basic',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      body: { cancel },
+      text,
+    } as unknown as Response;
+  }
+
+  it('releases the body of a response that is retried', async () => {
+    const cancel = vi.fn(() => Promise.resolve());
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(fakeResponse(503, () => Promise.resolve(''), cancel))
+      .mockResolvedValueOnce(jsonResponse([{ id: 'default' }]));
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+
+    await expect(client.ruleSets.list()).resolves.toEqual([{ id: 'default' }]);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('raises APITimeoutError when reading the body times out, without retrying', async () => {
+    const timeout = new Error('The operation was aborted due to timeout');
+    timeout.name = 'TimeoutError';
+    const fetch = vi.fn().mockResolvedValue(fakeResponse(200, () => Promise.reject(timeout)));
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+
+    await expect(client.ruleSets.list()).rejects.toBeInstanceOf(APITimeoutError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('raises APIConnectionError when reading the body fails otherwise', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(fakeResponse(200, () => Promise.reject(new Error('socket hang up'))));
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+
+    await expect(client.ruleSets.list()).rejects.toBeInstanceOf(APIConnectionError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('User-Agent', () => {
+  async function sentHeaders(options: { defaultHeaders?: Record<string, string> } = {}) {
+    const fetch = mockFetch([jsonResponse({})]);
+    await new KYCCentral({ baseUrl: BASE_URL, fetch, ...options }).health();
+    return (fetch.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
+  }
+
+  it('identifies the client outside browsers', async () => {
+    const headers = await sentHeaders();
+    expect(headers['User-Agent']).toMatch(/^kyccentral-js\/\d+\.\d+\.\d+ \(node\//);
+  });
+
+  it('is not sent where a browser `window` exists', async () => {
+    vi.stubGlobal('window', {});
+    try {
+      const headers = await sentHeaders();
+      expect(headers['User-Agent']).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('lets defaultHeaders override it', async () => {
+    const headers = await sentHeaders({ defaultHeaders: { 'User-Agent': 'my-app/1' } });
+    expect(headers['User-Agent']).toBe('my-app/1');
+  });
+
+  it('lets a differently-cased defaultHeaders entry override it', async () => {
+    const headers = await sentHeaders({ defaultHeaders: { 'user-agent': 'my-app/2' } });
+    expect(headers['user-agent']).toBe('my-app/2');
+    expect(headers['User-Agent']).toBeUndefined();
+  });
+
+  it('keeps VERSION in step with package.json', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      version: string;
+    };
+    expect(VERSION).toBe(pkg.version);
   });
 });

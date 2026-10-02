@@ -124,6 +124,15 @@ defmodule KYCCentral.ClientTest do
       assert Stub.call(agent).url =~ "abc%2Fdef%2Bgh"
     end
 
+    test "encodes a space in a path segment as %20, not +" do
+      assert {:ok, "a%20b%2Fc"} = KYCCentral.Transport.segment("a b/c", "x")
+
+      {client, agent} = Stub.client([Stub.json(%{})])
+      assert {:ok, _} = KYCCentral.Companies.officer_appointments(client, "abc def")
+      assert Stub.call(agent).url =~ "abc%20def"
+      refute Stub.call(agent).url =~ "+"
+    end
+
     test "rejects blank path segments before making a request" do
       {client, agent} = Stub.client([Stub.json(%{})])
 
@@ -183,6 +192,143 @@ defmodule KYCCentral.ClientTest do
       {client, _agent} = Stub.failing_client(reason, max_retries: 0)
 
       assert {:error, %Error{kind: :timeout}} = KYCCentral.RuleSets.list(client)
+    end
+
+    test "a POST that times out is not retried" do
+      {client, agent} =
+        Stub.sequence_client([{:error, :timeout}, Stub.json(%{"ok" => true})], max_retries: 2)
+
+      assert {:error, %Error{kind: :timeout}} = KYCCentral.Docs.ask(client, "hi")
+      assert Stub.call_count(agent) == 1
+    end
+
+    test "a POST is retried when the connection was refused" do
+      refused =
+        {:failed_connect, [{:to_address, {~c"host", 443}}, {:inet, [:inet], :econnrefused}]}
+
+      {client, agent} =
+        Stub.sequence_client([{:error, refused}, Stub.json(%{"ok" => true})], max_retries: 2)
+
+      assert {:ok, %{"ok" => true}} = KYCCentral.Docs.ask(client, "hi")
+      assert Stub.call_count(agent) == 2
+    end
+
+    test "a POST is not retried after a connect timeout" do
+      reason = {:failed_connect, [{:to_address, {~c"host", 443}}, {:inet, [:inet], :timeout}]}
+
+      {client, agent} =
+        Stub.sequence_client([{:error, reason}, Stub.json(%{"ok" => true})], max_retries: 2)
+
+      assert {:error, %Error{kind: :timeout}} = KYCCentral.Docs.ask(client, "hi")
+      assert Stub.call_count(agent) == 1
+    end
+
+    test "a POST is not retried after an unsafe transport error" do
+      {client, agent} =
+        Stub.sequence_client([{:error, :closed}, Stub.json(%{"ok" => true})], max_retries: 2)
+
+      assert {:error, %Error{kind: :connection}} = KYCCentral.Docs.ask(client, "hi")
+      assert Stub.call_count(agent) == 1
+    end
+
+    test "a POST is not retried on a 502" do
+      {client, agent} =
+        Stub.sequence_client(
+          [Stub.json(%{"detail" => "bad gateway"}, 502), Stub.json(%{"ok" => true})],
+          max_retries: 2
+        )
+
+      assert {:error, %Error{status: 502}} = KYCCentral.Docs.ask(client, "hi")
+      assert Stub.call_count(agent) == 1
+    end
+
+    test "a POST is retried on a 503 with Retry-After" do
+      busy = {503, Jason.encode!(%{"detail" => "busy"}), %{"retry-after" => ["0"]}}
+
+      {client, agent} =
+        Stub.sequence_client([busy, Stub.json(%{"ok" => true})], max_retries: 2)
+
+      assert {:ok, %{"ok" => true}} = KYCCentral.Docs.ask(client, "hi")
+      assert Stub.call_count(agent) == 2
+    end
+
+    test "a POST is not retried on a 503 without Retry-After" do
+      {client, agent} =
+        Stub.sequence_client(
+          [Stub.json(%{"detail" => "busy"}, 503), Stub.json(%{"ok" => true})],
+          max_retries: 2
+        )
+
+      assert {:error, %Error{kind: :service_unavailable}} = KYCCentral.Docs.ask(client, "hi")
+      assert Stub.call_count(agent) == 1
+    end
+
+    test "a GET that times out is retried" do
+      {client, agent} =
+        Stub.sequence_client([{:error, :timeout}, Stub.json([%{"id" => "default"}])],
+          max_retries: 2
+        )
+
+      assert {:ok, [%{"id" => "default"}]} = KYCCentral.RuleSets.list(client)
+      assert Stub.call_count(agent) == 2
+    end
+
+    test "a GET with Retry-After exceeding max backoff (8s) is not retried" do
+      rate_limited = {429, Jason.encode!(%{"detail" => "too fast"}), %{"retry-after" => ["60"]}}
+
+      {client, agent} =
+        Stub.sequence_client([rate_limited, Stub.json([%{"id" => "default"}])],
+          max_retries: 2
+        )
+
+      assert {:error, %Error{kind: :rate_limit, retry_after: 60.0}} =
+               KYCCentral.RuleSets.list(client)
+
+      assert Stub.call_count(agent) == 1
+    end
+
+    test "a GET with Retry-After of 0 is retried" do
+      rate_limited = {429, Jason.encode!(%{"detail" => "too fast"}), %{"retry-after" => ["0"]}}
+
+      {client, agent} =
+        Stub.sequence_client([rate_limited, Stub.json([%{"id" => "default"}])],
+          max_retries: 2
+        )
+
+      assert {:ok, [%{"id" => "default"}]} = KYCCentral.RuleSets.list(client)
+      assert Stub.call_count(agent) == 2
+    end
+
+    test "a GET with 503 and Retry-After exceeding max backoff is not retried" do
+      busy = {503, Jason.encode!(%{"detail" => "busy"}), %{"retry-after" => ["60"]}}
+
+      {client, agent} =
+        Stub.sequence_client([busy, Stub.json([%{"id" => "default"}])], max_retries: 2)
+
+      assert {:error, %Error{status: 503}} = KYCCentral.RuleSets.list(client)
+      assert Stub.call_count(agent) == 1
+    end
+  end
+
+  describe "redirects" do
+    test "a 3xx is returned as an error and never followed" do
+      {client, agent} =
+        Stub.client(
+          {302, "", %{"location" => "https://evil.example/"}},
+          max_retries: 2
+        )
+
+      assert {:error, %Error{kind: :unexpected_status, status: 302} = error} =
+               KYCCentral.RuleSets.list(client)
+
+      assert Error.header(error.headers, "location") == "https://evil.example/"
+      assert Stub.call_count(agent) == 1
+    end
+
+    test "the default :httpc transport turns autoredirect off" do
+      options = KYCCentral.Transport.httpc_options(%{receive_timeout: 1_000})
+
+      assert Keyword.fetch!(options, :autoredirect) == false
     end
   end
 end

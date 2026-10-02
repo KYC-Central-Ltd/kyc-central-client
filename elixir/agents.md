@@ -47,5 +47,5 @@ the Elixir changes weren't verified locally. Don't claim they pass; CI
 - Path parameters always go through `segment/2` inside a `with`.
 - Runtime dependency is `jason` only; the default transport is OTP `:httpc`. Don't
   add an HTTP client dependency.
-- `elixir: "~> 1.15"`; CI covers 1.15–1.17 on OTP 26/27. `:public_key.cacerts_get/0`
+- `elixir: "~> 1.15"`; CI covers 1.15–1.20 on OTP 26–29. `:public_key.cacerts_get/0`
   needs OTP 25+.

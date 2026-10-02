@@ -21,12 +21,18 @@ __all__ = ["Assessment", "RiskFlag", "RiskLevel", "RuleResult", "RuleStatus"]
 
 
 class RiskLevel(str, Enum):
-    """Severity of a risk flag, and the overall risk level of an assessment."""
+    """Severity of a risk flag, and the overall risk level of an assessment.
+
+    ``UNKNOWN`` is a value this client version does not recognise. It ranks above
+    ``CRITICAL`` so it is never filtered out by :meth:`Assessment.flags_at_or_above`;
+    the original string is on ``raw``.
+    """
 
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+    UNKNOWN = "unknown"
 
     @property
     def rank(self) -> int:
@@ -39,6 +45,7 @@ _RISK_RANK: dict[RiskLevel, int] = {
     RiskLevel.MEDIUM: 1,
     RiskLevel.HIGH: 2,
     RiskLevel.CRITICAL: 3,
+    RiskLevel.UNKNOWN: 4,
 }
 
 
@@ -50,12 +57,19 @@ class RuleStatus(str, Enum):
     NOT_EVALUATED = "not_evaluated"
 
 
-def _coerce_risk_level(value: Any, default: RiskLevel = RiskLevel.LOW) -> RiskLevel:
-    """Map an API severity string onto :class:`RiskLevel`, tolerating new values."""
+def _coerce_risk_level(value: Any) -> RiskLevel:
+    """Map an API severity string onto :class:`RiskLevel`.
+
+    Anything unrecognised (a new API value, or a missing or non-string one) fails
+    safe to :attr:`RiskLevel.UNKNOWN`, which ranks above critical, rather than
+    being silently treated as low.
+    """
+    if not isinstance(value, str):
+        return RiskLevel.UNKNOWN
     try:
-        return RiskLevel(str(value).lower())
+        return RiskLevel(value.lower())
     except ValueError:
-        return default
+        return RiskLevel.UNKNOWN
 
 
 def _coerce_rule_status(value: Any) -> RuleStatus:
@@ -246,7 +260,12 @@ class Assessment:
         return [f for f in self.flags if f.severity in wanted]
 
     def flags_at_or_above(self, level: RiskLevel) -> list[RiskFlag]:
-        """Flags at ``level`` or more severe."""
+        """Flags at ``level`` or more severe.
+
+        A flag whose severity this client version does not recognise is
+        :attr:`RiskLevel.UNKNOWN`, which ranks above ``CRITICAL``, so it is always
+        included. Its original string is on ``flag.raw``.
+        """
         return [f for f in self.flags if f.severity.rank >= level.rank]
 
     def has_flag(self, code: str) -> bool:
@@ -264,6 +283,15 @@ class Assessment:
     def __iter__(self) -> Iterator[RiskFlag]:
         """Iterating an assessment iterates its flags."""
         return iter(self.flags)
+
+    def __bool__(self) -> bool:
+        """An assessment is always truthy.
+
+        Without this, ``__len__`` would make a clean assessment (no flags) falsy, so
+        ``if assessment:`` would misfire, for example after ``assess(wait=False)``,
+        which returns ``Assessment | dict``.
+        """
+        return True
 
     def __len__(self) -> int:
         """The number of flags raised."""

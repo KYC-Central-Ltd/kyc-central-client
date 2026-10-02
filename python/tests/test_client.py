@@ -8,6 +8,7 @@ import respx
 
 from kyccentral import (
     APIConnectionError,
+    APIStatusError,
     APITimeoutError,
     AsyncKYCCentral,
     KYCCentral,
@@ -68,6 +69,42 @@ def test_omits_api_key_header_when_anonymous(monkeypatch: pytest.MonkeyPatch) ->
         client.jurisdictions.list()
 
     assert "X-API-Key" not in route.calls[0].request.headers
+
+
+@respx.mock
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_blank_explicit_api_key_means_no_key(monkeypatch: pytest.MonkeyPatch, blank: str) -> None:
+    # An explicit blank key does not fall back to the environment variable either.
+    monkeypatch.setenv(API_KEY_ENV, "env-key")
+    route = respx.get(f"{BASE_URL}/v1/jurisdictions").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    with KYCCentral(blank, base_url=BASE_URL) as client:
+        assert client.is_authenticated is False
+        client.jurisdictions.list()
+
+    assert "X-API-Key" not in route.calls[0].request.headers
+
+
+@respx.mock
+@pytest.mark.parametrize("blank", ["", "  \t"])
+def test_blank_env_api_key_means_no_key(monkeypatch: pytest.MonkeyPatch, blank: str) -> None:
+    monkeypatch.setenv(API_KEY_ENV, blank)
+    route = respx.get(f"{BASE_URL}/v1/jurisdictions").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    with KYCCentral(base_url=BASE_URL) as client:
+        assert client.is_authenticated is False
+        client.jurisdictions.list()
+
+    assert "X-API-Key" not in route.calls[0].request.headers
+
+
+@pytest.mark.asyncio
+async def test_async_blank_api_key_means_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(API_KEY_ENV, "  ")
+    async with AsyncKYCCentral(base_url=BASE_URL) as client:
+        assert client.is_authenticated is False
 
 
 @respx.mock
@@ -198,3 +235,215 @@ async def test_async_client_retries() -> None:
     async with AsyncKYCCentral(api_key="k", base_url=BASE_URL, max_retries=1) as client:
         assert await client.sanctions.status() == {"available": True}
     assert route.call_count == 2
+
+
+def _post_client(**kwargs) -> KYCCentral:
+    return KYCCentral(api_key="k", base_url=BASE_URL, max_retries=2, **kwargs)
+
+
+@respx.mock
+def test_post_is_not_retried_after_a_timeout() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.ReadTimeout("slow"), httpx.Response(200, json={})]
+    )
+    with _post_client() as client:
+        with pytest.raises(APITimeoutError):
+            client.docs.ask("hi")
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_post_is_retried_after_connection_refused() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.ConnectError("refused"), httpx.Response(200, json={"ok": 1})]
+    )
+    with _post_client() as client:
+        assert client.docs.ask("hi") == {"ok": 1}
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_post_is_not_retried_after_a_connect_timeout() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.ConnectTimeout("slow"), httpx.Response(200, json={})]
+    )
+    with _post_client() as client:
+        with pytest.raises(APITimeoutError):
+            client.docs.ask("hi")
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_post_is_not_retried_on_502() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.Response(502, text="bad gateway"), httpx.Response(200, json={})]
+    )
+    with _post_client() as client:
+        with pytest.raises(APIStatusError) as info:
+            client.docs.ask("hi")
+    assert info.value.status_code == 502
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_post_is_retried_on_503_with_retry_after() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[
+            httpx.Response(503, headers={"Retry-After": "0"}, json={"detail": "later"}),
+            httpx.Response(200, json={"ok": 1}),
+        ]
+    )
+    with _post_client() as client:
+        assert client.docs.ask("hi") == {"ok": 1}
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_post_is_not_retried_on_503_without_retry_after() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.Response(503, json={"detail": "x"}), httpx.Response(200, json={})]
+    )
+    with _post_client() as client:
+        with pytest.raises(APIStatusError):
+            client.docs.ask("hi")
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_post_is_not_retried_after_an_unsafe_transport_error() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.ReadError("reset"), httpx.Response(200, json={})]
+    )
+    with _post_client() as client:
+        with pytest.raises(APIConnectionError):
+            client.docs.ask("hi")
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_get_is_retried_after_a_timeout() -> None:
+    route = respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        side_effect=[httpx.ReadTimeout("slow"), httpx.Response(200, json=[])]
+    )
+    with _post_client() as client:
+        assert client.rule_sets.list() == []
+    assert route.call_count == 2
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_async_post_is_not_retried_after_a_timeout() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.ReadTimeout("slow"), httpx.Response(200, json={})]
+    )
+    async with AsyncKYCCentral(api_key="k", base_url=BASE_URL, max_retries=2) as client:
+        with pytest.raises(APITimeoutError):
+            await client.docs.ask("hi")
+    assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_async_post_is_retried_after_connection_refused() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.ConnectError("refused"), httpx.Response(200, json={"ok": 1})]
+    )
+    async with AsyncKYCCentral(api_key="k", base_url=BASE_URL, max_retries=2) as client:
+        assert await client.docs.ask("hi") == {"ok": 1}
+    assert route.call_count == 2
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_async_post_retry_after_and_502_policy() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "0"}, json={}),
+            httpx.Response(502, text="bad gateway"),
+            httpx.Response(200, json={}),
+        ]
+    )
+    async with AsyncKYCCentral(api_key="k", base_url=BASE_URL, max_retries=2) as client:
+        with pytest.raises(APIStatusError):
+            await client.docs.ask("hi")
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_get_does_not_retry_when_retry_after_exceeds_max_backoff() -> None:
+    route = respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "60"}, json={"detail": "too many"}),
+            httpx.Response(200, json=[{"id": "default"}]),
+        ]
+    )
+    with KYCCentral(api_key="k", base_url=BASE_URL, max_retries=2) as client:
+        from kyccentral import RateLimitError
+
+        with pytest.raises(RateLimitError) as exc_info:
+            client.rule_sets.list()
+        assert exc_info.value.retry_after == 60.0
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_get_retries_when_retry_after_within_max_backoff() -> None:
+    route = respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "0"}, json={"detail": "try again"}),
+            httpx.Response(200, json=[{"id": "default"}]),
+        ]
+    )
+    with KYCCentral(api_key="k", base_url=BASE_URL, max_retries=2) as client:
+        assert client.rule_sets.list() == [{"id": "default"}]
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_503_does_not_retry_when_retry_after_exceeds_max_backoff() -> None:
+    route = respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        return_value=httpx.Response(503, headers={"Retry-After": "60"}, json={"detail": "down"})
+    )
+    with KYCCentral(api_key="k", base_url=BASE_URL, max_retries=2) as client:
+        from kyccentral import ServerError
+
+        with pytest.raises(ServerError) as exc_info:
+            client.rule_sets.list()
+        assert exc_info.value.status_code == 503
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_redirects_are_not_followed(client: KYCCentral) -> None:
+    first = respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        return_value=httpx.Response(302, headers={"Location": "https://evil.example/v1/rule-sets"})
+    )
+    evil = respx.get("https://evil.example/v1/rule-sets").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    with pytest.raises(APIStatusError) as excinfo:
+        client.rule_sets.list()
+    assert excinfo.value.status_code == 302
+    assert excinfo.value.headers["Location"] == "https://evil.example/v1/rule-sets"
+    assert first.call_count == 1
+    assert not evil.called
+    assert respx.calls.call_count == 1
+    assert client._transport._http.follow_redirects is False
+
+
+@respx.mock
+async def test_redirects_are_not_followed_async(async_client: AsyncKYCCentral) -> None:
+    first = respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        return_value=httpx.Response(302, headers={"Location": "https://evil.example/v1/rule-sets"})
+    )
+    evil = respx.get("https://evil.example/v1/rule-sets").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    with pytest.raises(APIStatusError) as excinfo:
+        await async_client.rule_sets.list()
+    assert excinfo.value.status_code == 302
+    assert excinfo.value.headers["Location"] == "https://evil.example/v1/rule-sets"
+    assert first.call_count == 1
+    assert not evil.called
+    assert respx.calls.call_count == 1
+    assert async_client._transport._http.follow_redirects is False

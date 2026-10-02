@@ -111,7 +111,8 @@ export class Kyc {
    * Pass a company number, or `{ q }` to assess the top result for a name — but
    * prefer the number, so you always know which entity you screened.
    *
-   * @throws {TypeError} Neither or both of `companyNumber` and `q` given.
+   * @throws {TypeError} Neither or both of `companyNumber` and `q` given, or a
+   *   non-positive `pollIntervalMs` / `pollTimeoutMs`.
    * @throws {AuthenticationError} No API key configured.
    * @throws {NotFoundError} No such company, rule set or rule.
    * @throws {RateLimitError} Rate limit or monthly free quota hit.
@@ -126,6 +127,14 @@ export class Kyc {
     const isNumberForm = typeof companyNumberOrOptions === 'string';
     const options: AssessOptions = isNumberForm ? maybeOptions : companyNumberOrOptions;
     const companyNumber = isNumberForm ? companyNumberOrOptions : undefined;
+
+    // Reject up front: a non-positive interval would poll the jobs endpoint in a hot loop.
+    if (options.pollIntervalMs !== undefined && !(options.pollIntervalMs > 0)) {
+      throw new TypeError('pollIntervalMs must be > 0');
+    }
+    if (options.pollTimeoutMs !== undefined && !(options.pollTimeoutMs > 0)) {
+      throw new TypeError('pollTimeoutMs must be > 0');
+    }
 
     if (!companyNumber && !options.q) {
       throw new TypeError('Provide either a company number or `q`.');

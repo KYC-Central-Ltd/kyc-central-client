@@ -6,7 +6,7 @@ import httpx
 import pytest
 import respx
 
-from kyccentral import KYCCentral
+from kyccentral import AsyncKYCCentral, KYCCentral
 
 from .conftest import BASE_URL
 
@@ -197,3 +197,72 @@ def test_advanced_search_repeats_list_filters(client: KYCCentral) -> None:
     params = route.calls[0].request.url.params
     assert params.get_list("company_status") == ["active", "liquidation"]
     assert params["company_name_includes"] == "tesco"
+
+
+def _read_timeout(route: respx.Route) -> float:
+    return route.calls[-1].request.extensions["timeout"]["read"]
+
+
+def _ai_calls(c):
+    return [
+        ("/v1/analysis/company", lambda **kw: c.analysis.company("00445790", **kw)),
+        (
+            "/v1/analysis/adverse-media-overview",
+            lambda **kw: c.analysis.adverse_media_overview("1", **kw),
+        ),
+        ("/v1/analysis/filing-extract", lambda **kw: c.analysis.filing_extract("1", "tx", **kw)),
+        ("/v1/docs/ask", lambda **kw: c.docs.ask("hi", **kw)),
+    ]
+
+
+@pytest.mark.parametrize("index", range(4))
+@respx.mock
+def test_ai_endpoints_default_to_120s_and_accept_overrides(index: int) -> None:
+    with KYCCentral(api_key="k", base_url=BASE_URL) as default_client:
+        path, call = _ai_calls(default_client)[index]
+        route = respx.post(f"{BASE_URL}{path}").mock(return_value=httpx.Response(200, json={}))
+        call()
+        assert _read_timeout(route) == 120.0
+        call(timeout=5.0)
+        assert _read_timeout(route) == 5.0
+        for bad in (0, -1):
+            with pytest.raises(ValueError, match="timeout"):
+                call(timeout=bad)
+        assert route.call_count == 2
+    with KYCCentral(api_key="k", base_url=BASE_URL, timeout=300.0) as slow_client:
+        path, call = _ai_calls(slow_client)[index]
+        route = respx.post(f"{BASE_URL}{path}").mock(return_value=httpx.Response(200, json={}))
+        call()
+        assert _read_timeout(route) == 300.0
+
+
+@respx.mock
+def test_non_ai_posts_keep_the_client_timeout() -> None:
+    route = respx.post(f"{BASE_URL}/v1/sanctions/screen-names").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    with KYCCentral(api_key="k", base_url=BASE_URL) as client:
+        client.sanctions.screen_names(["A"])
+    assert _read_timeout(route) == 30.0
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_async_ai_endpoints_timeout() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(return_value=httpx.Response(200, json={}))
+    comp = respx.post(f"{BASE_URL}/v1/analysis/company").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    async with AsyncKYCCentral(api_key="k", base_url=BASE_URL) as client:
+        await client.docs.ask("hi")
+        assert _read_timeout(route) == 120.0
+        await client.analysis.company("1", timeout=7.0)
+        assert _read_timeout(comp) == 7.0
+        with pytest.raises(ValueError, match="timeout"):
+            await client.docs.ask("hi", timeout=0)
+        with pytest.raises(ValueError, match="timeout"):
+            await client.analysis.filing_extract("1", "tx", timeout=-1)
+    assert route.call_count == 1
+    async with AsyncKYCCentral(api_key="k", base_url=BASE_URL, timeout=300.0) as big:
+        await big.docs.ask("hi")
+        assert route.calls[-1].request.extensions["timeout"]["read"] == 300.0
