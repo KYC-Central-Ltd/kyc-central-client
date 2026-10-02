@@ -38,7 +38,7 @@ TESCO PLC → medium
 ```
 
 **Zero runtime dependencies.** Built on the platform `fetch`, so it runs unchanged on
-Node 18+, Deno, Bun, Cloudflare Workers, Vercel Edge and the browser. Ships ESM and CJS
+Node 20+, Deno, Bun, Cloudflare Workers, Vercel Edge and the browser. Ships ESM and CJS
 builds with full TypeScript types.
 
 ## Contents
@@ -65,7 +65,7 @@ npm install @kyccentral/sdk
 pnpm add @kyccentral/sdk    # or: yarn add @kyccentral/sdk
 ```
 
-Requires Node 18 or later (or any runtime with a global `fetch`).
+Requires Node 20 or later (or any runtime with a global `fetch`).
 
 ## Authentication
 

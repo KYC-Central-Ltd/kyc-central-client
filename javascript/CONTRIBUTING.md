@@ -21,7 +21,7 @@ npm run format:check
 npm run build       # tsup: ESM + CJS + type declarations
 ```
 
-All of these run in CI on Node 18, 20 and 22. Please make sure they pass locally before
+All of these run in CI on Node 20, 22 and 24. Please make sure they pass locally before
 opening a pull request.
 
 ## House rules

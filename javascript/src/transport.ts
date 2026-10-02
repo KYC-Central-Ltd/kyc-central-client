@@ -3,7 +3,7 @@
  * `types.ts`.
  *
  * Built on the platform `fetch`, so this package has no runtime dependencies and
- * runs unchanged on Node 18+, Deno, Bun, Cloudflare Workers and the browser.
+ * runs unchanged on Node 20+, Deno, Bun, Cloudflare Workers and the browser.
  */
 
 import {
@@ -240,16 +240,7 @@ async function decode(response: Response): Promise<unknown> {
 function combineSignals(timeoutMs: number, external?: AbortSignal): AbortSignal {
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   if (!external) return timeoutSignal;
-  // `AbortSignal.any` is available on Node 20+ and all modern runtimes; the
-  // fallback keeps Node 18 working.
-  if (typeof AbortSignal.any === 'function') {
-    return AbortSignal.any([timeoutSignal, external]);
-  }
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  timeoutSignal.addEventListener('abort', abort, { once: true });
-  external.addEventListener('abort', abort, { once: true });
-  return controller.signal;
+  return AbortSignal.any([timeoutSignal, external]);
 }
 
 export class Transport {
@@ -278,7 +269,7 @@ export class Transport {
     const fetchImpl = options.fetch ?? globalThis.fetch;
     if (typeof fetchImpl !== 'function') {
       throw new Error(
-        'No global fetch available. Use Node 18 or later, or pass a `fetch` implementation.',
+        'No global fetch available. Use Node 20 or later, or pass a `fetch` implementation.',
       );
     }
     // Bound so that a global `fetch` keeps its expected `this`.
