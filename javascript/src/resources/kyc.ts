@@ -27,17 +27,42 @@ export interface AssessOptions extends CallOptions {
   /** Run one rule instead of a whole set, e.g. `"ACCOUNTS_OVERDUE"`. Overrides `ruleSetId`. */
   ruleCode?: string;
   /**
-   * Adverse-media article URLs an analyst has already confirmed as genuine.
-   *
-   * Unconfirmed matches only ever raise a low-severity
-   * `ADVERSE_MEDIA_UNCONFIRMED` flag; listing a URL here promotes that article
-   * to its full severity.
+   * Adverse-media article URLs an analyst has reviewed and confirmed as genuine.
+   * Recorded and passed to the AI analysis. Does not change severity: adverse-media
+   * flags always stay at low-severity `ADVERSE_MEDIA_UNCONFIRMED`.
    */
   confirmedMediaUrls?: string[];
-  /** ICIJ Offshore Leaks match ids an analyst has confirmed, promoted the same way. */
+  /**
+   * Adverse-media article URLs an analyst has confirmed as not relevant. Drops
+   * `ADVERSE_MEDIA_UNCONFIRMED` for those articles.
+   */
+  dismissedMediaUrls?: string[];
+  /**
+   * ICIJ Offshore Leaks match ids an analyst has confirmed as genuine. Raises
+   * `OFFSHORE_LEAKS_HIT` for those matches in place of the low-severity
+   * `OFFSHORE_LEAKS_UNCONFIRMED`.
+   */
   confirmedLeakIds?: string[];
+  /**
+   * ICIJ Offshore Leaks match ids an analyst has confirmed as not relevant. Drops the
+   * Offshore Leaks flag for those matches.
+   */
+  dismissedLeakIds?: string[];
   /** Confirmed PSC/shareholder identity links, each `"<psc name>||<shareholder name>"`. */
   confirmedPscShareholderLinks?: string[];
+  /**
+   * Analyst-confirmed links between a corporate officer and the registered company it
+   * is, each formatted `"<officer name>||<company number>"`.
+   * `companies.officerCompanyMatches` suggests candidates.
+   */
+  confirmedOfficerCompanyLinks?: string[];
+  /** An analyst-confirmed FCA firm reference number (FRN) for this company. At most 10 characters. */
+  confirmedFcaFrn?: string;
+  /**
+   * The analyst has marked this company as not FCA-regulated. Wins over
+   * `confirmedFcaFrn` when both are set.
+   */
+  fcaNotApplicable?: boolean;
   /** Poll a queued assessment to completion. Default `true`. */
   wait?: boolean;
   /** Milliseconds between polls of a queued job. */
@@ -150,8 +175,13 @@ export class Kyc {
         rule_set_id: options.ruleSetId,
         rule_code: options.ruleCode,
         confirmed_media_url: options.confirmedMediaUrls,
+        dismissed_media_url: options.dismissedMediaUrls,
         confirmed_leak_id: options.confirmedLeakIds,
+        dismissed_leak_id: options.dismissedLeakIds,
         confirmed_psc_shareholder_link: options.confirmedPscShareholderLinks,
+        confirmed_officer_company_link: options.confirmedOfficerCompanyLinks,
+        confirmed_fca_frn: options.confirmedFcaFrn,
+        fca_not_applicable: options.fcaNotApplicable ? true : undefined,
       },
       signal: options.signal,
     });

@@ -50,7 +50,10 @@ defmodule KYCCentral.Assessment do
 
   The `*_summary` fields hold the evidence each rule was evaluated against; each
   mirrors the corresponding standalone endpoint, so `:officers_summary` and
-  `KYCCentral.Companies.officers/3` describe the same data.
+  `KYCCentral.Companies.officers/2` describe the same data.
+
+  `:psc_chain_depth_capped` is true when the ownership walk hit its depth limit,
+  so `:psc_chain_depth` is a lower bound (at least N layers).
   """
 
   alias KYCCentral.{RiskFlag, RuleResult}
@@ -75,8 +78,10 @@ defmodule KYCCentral.Assessment do
           checked_at: String.t(),
           data_fetched_at: String.t(),
           psc_chain_depth: non_neg_integer(),
+          psc_chain_depth_capped: boolean(),
           rule_results: [RuleResult.t()],
           timed_out_services: [String.t()],
+          unavailable_services: [String.t()],
           failed_rules: [String.t()],
           pending_extractions: [String.t()],
           raw: map()
@@ -90,6 +95,7 @@ defmodule KYCCentral.Assessment do
     :data_fetched_at,
     flags: [],
     psc_chain_depth: 0,
+    psc_chain_depth_capped: false,
 
     # Companies House core data
     profile: %{},
@@ -118,6 +124,7 @@ defmodule KYCCentral.Assessment do
 
     # Run metadata
     timed_out_services: [],
+    unavailable_services: [],
     failed_rules: [],
     rule_results: [],
     pending_extractions: [],
@@ -137,6 +144,7 @@ defmodule KYCCentral.Assessment do
       checked_at: string(data["checked_at"]),
       data_fetched_at: string(data["data_fetched_at"]),
       psc_chain_depth: integer(data["psc_chain_depth"]),
+      psc_chain_depth_capped: data["psc_chain_depth_capped"] == true,
       profile: object(data["profile"]),
       officers_summary: object(data["officers_summary"]),
       psc_summary: object(data["psc_summary"]),
@@ -159,6 +167,7 @@ defmodule KYCCentral.Assessment do
       offshore_leaks_summary: object(data["offshore_leaks_summary"]),
       vat_summary: object(data["vat_summary"]),
       timed_out_services: strings(data["timed_out_services"]),
+      unavailable_services: strings(data["unavailable_services"]),
       failed_rules: strings(data["failed_rules"]),
       rule_results: Enum.map(list(data["rule_results"]), &to_rule_result/1),
       pending_extractions: strings(data["pending_extractions"]),
@@ -173,13 +182,17 @@ defmodule KYCCentral.Assessment do
   @doc """
   True when some data was unavailable, so the result is incomplete.
 
+  That is when `:timed_out_services` or `:unavailable_services` is non-empty, or
+  when any rule failed (`:failed_rules`) or extraction is pending
+  (`:pending_extractions`).
+
   A partial assessment is still usable, but an absent flag is not proof of a
   clean result — treat it as "not yet screened" rather than "clear".
   """
   @spec partial?(t()) :: boolean()
   def partial?(%__MODULE__{} = assessment) do
-    assessment.timed_out_services != [] or assessment.failed_rules != [] or
-      assessment.pending_extractions != []
+    assessment.timed_out_services != [] or assessment.unavailable_services != [] or
+      assessment.failed_rules != [] or assessment.pending_extractions != []
   end
 
   @doc "Flags matching any of `severities`."

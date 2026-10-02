@@ -102,7 +102,15 @@ export class RateLimitError extends APIStatusError {
 export class ServerError extends APIStatusError {}
 
 /** 503 — a dependency the API needs is temporarily unavailable. */
-export class ServiceUnavailableError extends ServerError {}
+export class ServiceUnavailableError extends ServerError {
+  /** Seconds to wait before retrying, from the `Retry-After` header. */
+  readonly retryAfter?: number;
+
+  constructor(message: string, options: APIStatusErrorOptions & { retryAfter?: number }) {
+    super(message, options);
+    this.retryAfter = options.retryAfter;
+  }
+}
 
 /**
  * A queued assessment did not produce a result.
@@ -169,8 +177,14 @@ const STATUS_MAP: Record<
   403: PermissionDeniedError,
   404: NotFoundError,
   422: UnprocessableEntityError,
-  503: ServiceUnavailableError,
 };
+
+/** Seconds from a numeric `Retry-After` header, else `undefined`. */
+function parseRetryAfter(headers: Headers): number | undefined {
+  const raw = headers.get('Retry-After');
+  const parsed = raw === null ? Number.NaN : Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 
 /** Build the most specific error class for a failed response. */
 export function statusErrorFromResponse(
@@ -185,11 +199,12 @@ export function statusErrorFromResponse(
   const options: APIStatusErrorOptions = { statusCode, detail, body, headers };
 
   if (statusCode === 429) {
-    const raw = headers.get('Retry-After');
-    const parsed = raw === null ? Number.NaN : Number(raw);
-    return new RateLimitError(message, {
+    return new RateLimitError(message, { ...options, retryAfter: parseRetryAfter(headers) });
+  }
+  if (statusCode === 503) {
+    return new ServiceUnavailableError(message, {
       ...options,
-      retryAfter: Number.isFinite(parsed) ? parsed : undefined,
+      retryAfter: parseRetryAfter(headers),
     });
   }
 

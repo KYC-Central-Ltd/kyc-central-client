@@ -13,8 +13,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   forwarded on cross-origin redirects, so a redirect to another host could leak the key.
   A 3xx now raises a status error carrying the `Location` header.
 
+### Removed
+
+- The `fca` namespace (the API now serves `/v1/fca/*` to signed-in sessions only, so every
+  call returned 401). FCA results still arrive in `Assessment.fcaSummary`.
+
 ### Added
 
+- `unavailableServices` and `pscChainDepthCapped` on the assessment.
+- Five new `kyc.assess` options: `dismissedMediaUrls`, `dismissedLeakIds`,
+  `confirmedOfficerCompanyLinks`, `confirmedFcaFrn` and `fcaNotApplicable`.
+- `companies.officerCompanyMatches`, `companies.chargeRegistrations`,
+  `companies.extractChargeRegistration` (Professional) and `analysis.chargeRegistration`.
+- `reports.data`, the full report as JSON (`POST /billing/report-data`).
+- `ServiceUnavailableError` carries `retryAfter`, as `RateLimitError` does.
 - Per-call `timeoutMs` option on the AI endpoints, defaulting to 120 s (or the client
   timeout, if longer).
 - `RiskFlag.raw` and `RuleResult.raw` hold each entry's untouched payload, as in the
@@ -25,6 +37,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `companies.advancedSearch` `companyStatus` / `companyType` / `sicCodes` take a single
+  string (the API never accepted several; an array silently applied one value).
+- `sanctions.screen` `threshold` is an integer 1-100 (documented wrongly as 0-1).
+- `charity.get` `suffix` is a number.
+- Confirming an adverse-media article no longer raises its severity (API behaviour; docs
+  corrected).
 - An unrecognised severity or risk level now maps to a new `unknown` level that ranks
   above `critical`, instead of `low`, so a value this version doesn't know is never
   filtered out by `flagsAtOrAbove`. The original string is still on `raw`.
@@ -41,6 +59,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `isPartial` now counts `unavailableServices`.
 - Response bodies of retried requests are now released, so a burst of 5xx responses can
   no longer exhaust the connection pool, and a timeout while reading the body raises
   `APITimeoutError` instead of a raw `DOMException`.

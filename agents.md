@@ -54,10 +54,18 @@ in the other two.
 - **Full `/v1` coverage.** Every documented public `/v1` endpoint, in every client.
   Endpoints registered with `include_in_schema=False` in the backend (billing,
   workspaces, PDF, admin, investigator) are internal and deliberately **not** covered.
+  Three cases the schema alone gets wrong:
+  - `POST /v1/billing/report-data` is published for API callers although the rest of
+    `/billing` is internal → covered as `reports.data`.
+  - `/v1/fca/*` is in the schema but serves signed-in browser sessions only (the FCA
+    Register's terms bar feeding its data to API callers), so an API key gets 401 →
+    **not** covered. FCA results still reach callers inside the assessment's
+    `fca_summary`.
+  - `GET /v1/announcements` is the website's news bar → **not** covered.
 - **Only the assessment is typed.** `v1/kyc/assess` is the one response shape the API
   owns → `Assessment` dataclass / TypeScript interface / Elixir struct, with severity
   helpers and an `is_partial` / `isPartial` / `partial?` check. Endpoints that proxy an
-  upstream registry (Companies House, FCA Register, GLEIF, …) return decoded JSON
+  upstream registry (Companies House, GLEIF, the Charity Commission, …) return decoded JSON
   as-is so new upstream fields reach callers without a client release. The untouched
   payload is kept on `raw`.
 - **Unknown severities fail safe.** A severity or risk level a client doesn't recognise
@@ -74,6 +82,9 @@ in the other two.
   established (refused/DNS, not a timeout) or on 429/503 with `Retry-After`; never after
   a timeout or 500/502/504. The AI endpoints default to a 120 s timeout (or the client
   timeout, if longer), overridable per call. 401, 403, 404, 422 are never retried.
+  `reports.data` depends on the 8 s rule: an incomplete report answers 503 with
+  `Retry-After: 300`, and each attempt takes and returns a report credit, so it must
+  surface to the caller (with `retry_after` set) rather than be retried.
 - **Anonymous use works.** Reference and lookup endpoints run without a key at a lower
   rate limit; assessments and the AI endpoints require one.
 - **Redirects are never followed.** The key travels in the custom `X-API-Key` header,
@@ -84,7 +95,8 @@ in the other two.
 - **Tests are offline.** Every suite mocks or injects the transport — no network, no
   API key needed to run the tests.
 - **Compliance framing is consistent.** Sanctions/adverse-media matching is
-  approximate; unconfirmed matches stay low-severity until an analyst confirms them;
+  approximate; adverse-media and Offshore Leaks matches start low-severity, and only a
+  confirmed Offshore Leaks match rises (adverse media stays low even when confirmed);
   there is no PEP screening; a partial result is not a clean one.
 
 ## Tooling & commands

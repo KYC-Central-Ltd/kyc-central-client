@@ -317,7 +317,7 @@ defmodule KYCCentral.Transport do
   Encode query parameters, dropping unset ones and repeating list values.
 
   Built by hand rather than through `URI.encode_query/1` because several
-  endpoints take repeatable parameters (`confirmed_media_url`, `company_status`),
+  endpoints take repeatable parameters (`confirmed_media_url`, `confirmed_leak_id`),
   which need `?k=a&k=b` rather than one comma-joined value.
   """
   @spec query_string(keyword() | nil) :: String.t()
@@ -363,6 +363,19 @@ defmodule KYCCentral.Transport do
 
   def segment(_value, name) do
     {:error, Error.invalid_argument("#{name} must be a non-empty string")}
+  end
+
+  @doc false
+  @spec charge_key(term()) :: {:ok, String.t()} | {:error, Error.t()}
+  def charge_key(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:error, Error.invalid_argument("charge_key must be a non-empty string")}
+      trimmed -> {:ok, trimmed}
+    end
+  end
+
+  def charge_key(_value) do
+    {:error, Error.invalid_argument("charge_key must be a non-empty string")}
   end
 
   @doc """

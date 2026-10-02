@@ -20,8 +20,8 @@ defmodule KYCCentral.Charity do
 
   ## Options
 
-    * `:suffix` — subsidiary suffix, for linked charities registered under one
-      number. Defaults to the parent entry.
+    * `:suffix` — linked-charity suffix, an integer. Defaults to 0, the main
+      charity.
   """
   @spec get(KYCCentral.t(), String.t(), keyword()) :: result()
   def get(client, registration_number, opts \\ []) do

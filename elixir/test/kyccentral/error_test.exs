@@ -49,6 +49,22 @@ defmodule KYCCentral.ErrorTest do
              KYCCentral.RuleSets.list(client)
   end
 
+  test "503 errors expose Retry-After, and have none without the header" do
+    with_header =
+      {503, Jason.encode!(%{"detail" => "down"}),
+       %{"content-type" => ["application/json"], "Retry-After" => ["300"]}}
+
+    {client, _agent} = Stub.client([with_header])
+
+    assert {:error, %Error{kind: :service_unavailable, retry_after: 300.0}} =
+             KYCCentral.RuleSets.list(client)
+
+    {client, _agent} = Stub.client([Stub.json(%{"detail" => "down"}, 503)])
+
+    assert {:error, %Error{kind: :service_unavailable, retry_after: nil}} =
+             KYCCentral.RuleSets.list(client)
+  end
+
   test "header lookup is case-insensitive, as HTTP header names are" do
     headers = %{"Retry-After" => ["30"], "content-type" => ["application/json"]}
 

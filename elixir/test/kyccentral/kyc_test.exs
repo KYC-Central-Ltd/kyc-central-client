@@ -14,6 +14,8 @@ defmodule KYCCentral.KYCTest do
       assert assessment.company_name == "TESCO PLC"
       assert assessment.risk_level == :medium
       assert assessment.psc_chain_depth == 2
+      refute assessment.psc_chain_depth_capped
+      assert assessment.unavailable_services == []
 
       assert Enum.map(assessment.flags, & &1.code) == [
                "ACCOUNTS_OVERDUE",
@@ -50,6 +52,65 @@ defmodule KYCCentral.KYCTest do
 
       assert {:ok, assessment} = KYCCentral.KYC.assess(client, "00445790")
       assert Assessment.partial?(assessment)
+    end
+
+    test "marks an assessment with only unavailable services as partial" do
+      payload = Map.put(Stub.assessment_payload(), "unavailable_services", ["gleif"])
+      {client, _agent} = Stub.client([Stub.json(payload)])
+
+      assert {:ok, assessment} = KYCCentral.KYC.assess(client, "00445790")
+      assert assessment.unavailable_services == ["gleif"]
+      assert assessment.timed_out_services == []
+      assert Assessment.partial?(assessment)
+    end
+
+    test "parses psc_chain_depth_capped, and defaults the new keys when absent" do
+      payload = Map.put(Stub.assessment_payload(), "psc_chain_depth_capped", true)
+      {client, _agent} = Stub.client([Stub.json(payload)])
+      assert {:ok, %Assessment{psc_chain_depth_capped: true}} = KYCCentral.KYC.assess(client, "1")
+
+      bare =
+        Map.drop(Stub.assessment_payload(), ["psc_chain_depth_capped", "unavailable_services"])
+
+      {client, _agent} = Stub.client([Stub.json(bare)])
+      assert {:ok, assessment} = KYCCentral.KYC.assess(client, "1")
+      assert assessment.psc_chain_depth_capped == false
+      assert assessment.unavailable_services == []
+    end
+
+    test "sends the new confirmation and dismissal options" do
+      {client, agent} = Stub.client([Stub.json(Stub.assessment_payload())])
+
+      assert {:ok, _} =
+               KYCCentral.KYC.assess(client, "00445790",
+                 dismissed_media_urls: ["https://news.example/a", "https://news.example/b"],
+                 dismissed_leak_ids: ["n1", "n2"],
+                 confirmed_officer_company_links: ["ACME HOLDINGS||01234567"],
+                 confirmed_fca_frn: "123456",
+                 fca_not_applicable: true
+               )
+
+      assert Stub.query_values(agent, "dismissed_media_url") ==
+               ["https://news.example/a", "https://news.example/b"]
+
+      assert Stub.query_values(agent, "dismissed_leak_id") == ["n1", "n2"]
+
+      assert Stub.query_values(agent, "confirmed_officer_company_link") ==
+               ["ACME HOLDINGS||01234567"]
+
+      assert Stub.query_values(agent, "confirmed_fca_frn") == ["123456"]
+      assert Stub.query_values(agent, "fca_not_applicable") == ["true"]
+    end
+
+    test "fca_not_applicable is omitted when false or absent" do
+      {client, agent} = Stub.client([Stub.json(Stub.assessment_payload())])
+
+      assert {:ok, _} = KYCCentral.KYC.assess(client, "00445790", fca_not_applicable: false)
+      assert {:ok, _} = KYCCentral.KYC.assess(client, "00445790")
+
+      assert Stub.query_values(agent, "fca_not_applicable", 0) == []
+      assert Stub.query_values(agent, "fca_not_applicable", 1) == []
+      assert Stub.query_values(agent, "dismissed_leak_id", 1) == []
     end
 
     test "an unrecognised severity or risk level fails safe to :unknown" do

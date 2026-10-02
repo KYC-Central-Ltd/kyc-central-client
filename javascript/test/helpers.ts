@@ -65,6 +65,7 @@ export function assessmentPayload(): JsonObject {
     officers_summary: { total: 12 },
     psc_summary: { total: 3 },
     psc_chain_depth: 2,
+    psc_chain_depth_capped: false,
     rule_results: [
       {
         code: 'ACCOUNTS_OVERDUE',
@@ -84,6 +85,7 @@ export function assessmentPayload(): JsonObject {
       },
     ],
     timed_out_services: [],
+    unavailable_services: [],
     failed_rules: [],
     pending_extractions: [],
   };

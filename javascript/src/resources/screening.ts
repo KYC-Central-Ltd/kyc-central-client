@@ -1,4 +1,4 @@
-/** Screening sources: sanctions, adverse media, offshore leaks, FCA, GLEIF, insolvency. */
+/** Screening sources: sanctions, adverse media, offshore leaks, GLEIF, insolvency. */
 
 import { namesBody, seg, type Transport } from '../transport.js';
 import type { JsonObject } from '../types.js';
@@ -8,9 +8,12 @@ import type { CallOptions } from './companies.js';
 export const MAX_SCREEN_NAMES = 500;
 
 export interface ScreenOptions extends CallOptions {
-  /** Minimum overall match score to return, between 0 and 1. Higher is stricter. */
+  /**
+   * Fuzzy-match threshold, an integer from 1 to 100. Overrides the server default;
+   * lower values return more, weaker candidates.
+   */
   threshold?: number;
-  /** Minimum semantic-similarity score for the stage that shortlists candidates. */
+  /** Vector-similarity threshold, from 0.0 to 1.0. Overrides the server default. */
   vectorThreshold?: number;
 }
 
@@ -194,56 +197,6 @@ export class OffshoreLeaks {
   async node(nodeId: string, options: NodeOptions = {}): Promise<JsonObject> {
     return this.transport.get(`/offshore-leaks/node/${seg(nodeId, 'nodeId')}`, {
       params: { name: options.name, node_type: options.nodeType },
-      signal: options.signal,
-    });
-  }
-}
-
-/**
- * Financial Conduct Authority register lookups.
- *
- * Firms are identified by their Firm Reference Number (FRN).
- */
-export class Fca {
-  constructor(private readonly transport: Transport) {}
-
-  /** Whether FCA Register access is configured. */
-  async status(options: CallOptions = {}): Promise<JsonObject> {
-    return this.transport.get('/fca/status', options);
-  }
-
-  /** Search the register by firm or individual name. */
-  async search(q: string, options: CallOptions = {}): Promise<JsonObject> {
-    return this.transport.get('/fca/search', { params: { q }, signal: options.signal });
-  }
-
-  /** A firm's register entry: permissions, status, addresses. */
-  async firm(frn: string, options: CallOptions = {}): Promise<JsonObject> {
-    return this.transport.get(`/fca/firm/${seg(frn, 'frn')}`, options);
-  }
-
-  /** Trading names a firm operates under. */
-  async firmNames(frn: string, options: CallOptions = {}): Promise<JsonObject> {
-    return this.transport.get(`/fca/firm/${seg(frn, 'frn')}/names`, options);
-  }
-
-  /** Approved individuals attached to a firm. */
-  async firmIndividuals(frn: string, options: CallOptions = {}): Promise<JsonObject> {
-    return this.transport.get(`/fca/firm/${seg(frn, 'frn')}/individuals`, options);
-  }
-
-  /** Check a company's officers and PSCs against the FCA register. */
-  async screenIndividuals(companyNumber: string, options: CallOptions = {}): Promise<JsonObject> {
-    return this.transport.get('/fca/screen-individuals', {
-      params: { company_number: seg(companyNumber, 'companyNumber') },
-      signal: options.signal,
-    });
-  }
-
-  /** Look up one individual on the FCA register by name. */
-  async checkIndividual(name: string, options: CallOptions = {}): Promise<JsonObject> {
-    return this.transport.get('/fca/check-individual', {
-      params: { name },
       signal: options.signal,
     });
   }

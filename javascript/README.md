@@ -166,25 +166,43 @@ returns what it has and says so rather than silently reporting a clean result:
 
 ```ts
 if (isPartial(assessment)) {
-  console.warn('Incomplete:', assessment.timedOutServices, assessment.failedRules);
+  console.warn(
+    'Incomplete:',
+    assessment.timedOutServices,
+    assessment.unavailableServices,
+    assessment.failedRules,
+  );
 }
 ```
 
 **Treat `isPartial` as "not yet screened", not "clean".** An absent flag from a source
 that timed out is not evidence of absence.
 
-### Confirming noisy matches
+### Confirming and dismissing noisy matches
 
-Adverse media and Offshore Leaks matching is fuzzy, so unconfirmed hits only ever raise
-a low-severity `*_UNCONFIRMED` flag. Once an analyst has confirmed a specific article or
-match, pass it back to promote it to full severity:
+Adverse media and Offshore Leaks matching is fuzzy, so a match starts as a
+low-severity `*_UNCONFIRMED` flag. Once an analyst has reviewed a match, pass the
+decision back:
 
 ```ts
 await client.kyc.assess('00445790', {
-  confirmedMediaUrls: ['https://news.example/article'],
   confirmedLeakIds: ['icij-node-12345'],
+  dismissedLeakIds: ['icij-node-67890'],
+  confirmedMediaUrls: ['https://news.example/article'],
+  dismissedMediaUrls: ['https://news.example/unrelated'],
 });
 ```
+
+- A confirmed Offshore Leaks match raises `OFFSHORE_LEAKS_HIT` in place of the
+  unconfirmed flag.
+- A confirmed adverse-media article is recorded and passed to the AI analysis, but
+  its flag stays low-severity: adverse media never rises above
+  `ADVERSE_MEDIA_UNCONFIRMED`.
+- A dismissed article or match drops its flag.
+
+The same call takes confirmed identity links (`confirmedPscShareholderLinks` and
+`confirmedOfficerCompanyLinks`) and the company's FCA status (`confirmedFcaFrn`, or
+`fcaNotApplicable`).
 
 ### Queued assessments are handled for you
 
@@ -265,10 +283,10 @@ are retried only when the connection was never established, or on 429/503 with a
 404 and 422 are never retried.
 
 A `Retry-After` longer than 8 seconds is not waited out; the client surfaces the
-rate-limit error immediately with `.retryAfter` set so you can schedule the retry.
+rate-limit (or service-unavailable) error immediately with `.retryAfter` set so you can schedule the retry.
 
 The AI endpoints (`analysis.company`, `analysis.adverseMediaOverview`,
-`analysis.filingExtract`, `docs.ask`) default to a 120 s timeout, or the client's
+`analysis.filingExtract`, `analysis.chargeRegistration`, `reports.data`, `docs.ask`) default to a 120 s timeout, or the client's
 `timeoutMs` if that is longer. Override it per call:
 
 ```ts
@@ -330,27 +348,30 @@ Every documented endpoint is available.
 <details>
 <summary><b>Companies</b> — <code>client.companies</code></summary>
 
-| Method                                             | Endpoint                                                         |
-| -------------------------------------------------- | ---------------------------------------------------------------- |
-| `search(q, opts?)`                                 | `GET /companies/search`                                          |
-| `searchOfficers(q, opts?)`                         | `GET /companies/search/officers`                                 |
-| `advancedSearch(opts?)`                            | `GET /companies/advanced-search`                                 |
-| `get(companyNumber)`                               | `GET /companies/{n}`                                             |
-| `dossier(n)`                                       | `GET /companies/{n}/dossier`                                     |
-| `officers(n)`                                      | `GET /companies/{n}/officers`                                    |
-| `pscs(n)`                                          | `GET /companies/{n}/persons-with-significant-control`            |
-| `pscStatements(n)`                                 | `GET /companies/{n}/persons-with-significant-control-statements` |
-| `pscChainDepth(n)`                                 | `GET /companies/{n}/psc-chain-depth`                             |
-| `pscChainTree(n)`                                  | `GET /companies/{n}/psc-chain-tree`                              |
-| `charges(n)`                                       | `GET /companies/{n}/charges`                                     |
-| `charge(n, chargeId)`                              | `GET /companies/{n}/charges/{id}`                                |
-| `insolvency(n)`                                    | `GET /companies/{n}/insolvency`                                  |
-| `disqualifications(n)`                             | `GET /companies/{n}/disqualifications`                           |
-| `officerDisqualification(n, officerId)`            | `GET /companies/{n}/officers/{id}/disqualification`              |
-| `officerAppointments(officerId, opts?)`            | `GET /companies/officers/{id}/appointments`                      |
-| `filingHistory(n, opts?)` **Professional**         | `GET /companies/{n}/filing-history`                              |
-| `filingExtract(n, transactionId)` **Professional** | `GET /companies/{n}/filing-history/{tx}/extract`                 |
-| `statementOfCapital(n)` **Professional**           | `GET /companies/{n}/statement-of-capital`                        |
+| Method                                                     | Endpoint                                                         |
+| ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| `search(q, opts?)`                                         | `GET /companies/search`                                          |
+| `searchOfficers(q, opts?)`                                 | `GET /companies/search/officers`                                 |
+| `advancedSearch(opts?)`                                    | `GET /companies/advanced-search`                                 |
+| `get(companyNumber)`                                       | `GET /companies/{n}`                                             |
+| `dossier(n)`                                               | `GET /companies/{n}/dossier`                                     |
+| `officers(n)`                                              | `GET /companies/{n}/officers`                                    |
+| `officerCompanyMatches(n)`                                 | `GET /companies/{n}/officer-company-matches`                     |
+| `pscs(n)`                                                  | `GET /companies/{n}/persons-with-significant-control`            |
+| `pscStatements(n)`                                         | `GET /companies/{n}/persons-with-significant-control-statements` |
+| `pscChainDepth(n)`                                         | `GET /companies/{n}/psc-chain-depth`                             |
+| `pscChainTree(n)`                                          | `GET /companies/{n}/psc-chain-tree`                              |
+| `charges(n)`                                               | `GET /companies/{n}/charges`                                     |
+| `charge(n, chargeId)`                                      | `GET /companies/{n}/charges/{id}`                                |
+| `chargeRegistrations(n)`                                   | `GET /companies/{n}/charges/registrations`                       |
+| `insolvency(n)`                                            | `GET /companies/{n}/insolvency`                                  |
+| `disqualifications(n)`                                     | `GET /companies/{n}/disqualifications`                           |
+| `officerDisqualification(n, officerId)`                    | `GET /companies/{n}/officers/{id}/disqualification`              |
+| `officerAppointments(officerId, opts?)`                    | `GET /companies/officers/{id}/appointments`                      |
+| `filingHistory(n, opts?)` **Professional**                 | `GET /companies/{n}/filing-history`                              |
+| `filingExtract(n, transactionId)` **Professional**         | `GET /companies/{n}/filing-history/{tx}/extract`                 |
+| `statementOfCapital(n)` **Professional**                   | `GET /companies/{n}/statement-of-capital`                        |
+| `extractChargeRegistration(n, chargeKey)` **Professional** | `POST /companies/{n}/charges/registration`                       |
 
 `dossier()` returns profile, officers, PSCs, charges, insolvency and filings in one
 request — cheaper than six separate calls.
@@ -395,17 +416,10 @@ Financial Sanctions Files.
 </details>
 
 <details>
-<summary><b>Registries</b> — <code>client.fca</code>, <code>client.gleif</code>, <code>client.individualInsolvency</code>, <code>client.charity</code>, <code>client.hmrcVat</code></summary>
+<summary><b>Registries</b> — <code>client.gleif</code>, <code>client.individualInsolvency</code>, <code>client.charity</code>, <code>client.hmrcVat</code></summary>
 
 | Method                                  | Endpoint                                    |
 | --------------------------------------- | ------------------------------------------- |
-| `fca.status()`                          | `GET /fca/status`                           |
-| `fca.search(q)`                         | `GET /fca/search`                           |
-| `fca.firm(frn)`                         | `GET /fca/firm/{frn}`                       |
-| `fca.firmNames(frn)`                    | `GET /fca/firm/{frn}/names`                 |
-| `fca.firmIndividuals(frn)`              | `GET /fca/firm/{frn}/individuals`           |
-| `fca.screenIndividuals(n)`              | `GET /fca/screen-individuals`               |
-| `fca.checkIndividual(name)`             | `GET /fca/check-individual`                 |
 | `gleif.company(n)`                      | `GET /gleif/company`                        |
 | `individualInsolvency.screenCompany(n)` | `GET /individual-insolvency/screen-company` |
 | `charity.status()`                      | `GET /charity/status`                       |
@@ -430,11 +444,28 @@ Financial Sanctions Files.
 | `analysis.company(n, opts?)` **Professional**              | `POST /analysis/company`                |
 | `analysis.adverseMediaOverview(n, opts?)` **Professional** | `POST /analysis/adverse-media-overview` |
 | `analysis.filingExtract(n, tx, opts?)`                     | `POST /analysis/filing-extract`         |
+| `analysis.chargeRegistration(n, chargeKey, opts?)`         | `POST /analysis/charge-registration`    |
 | `docs.ask(message, opts?)`                                 | `POST /docs/ask`                        |
 | `client.health()`                                          | `GET /health`                           |
 | `client.dataSourceHealth()`                                | `GET /health/data-sources`              |
 
 FATF listings are refreshed after each plenary (roughly February, June and October).
+
+</details>
+
+<details>
+<summary><b>Reports</b> — <code>client.reports</code></summary>
+
+| Method                   | Endpoint                    |
+| ------------------------ | --------------------------- |
+| `reports.data(n, opts?)` | `POST /billing/report-data` |
+
+`reports.data()` returns the full report (the assessment, flags per rule set and every
+section's data) as JSON instead of a PDF. It needs an API key and uses one PDF report
+credit. `sections` and `ruleSetIds` take an array, sent comma-joined. A report is never
+returned with a required check missing: that is a `ServiceUnavailableError` with
+`.retryAfter` set (about five minutes) and the credit is returned. The client does not
+retry it; wait, then call again.
 
 </details>
 
@@ -462,8 +493,10 @@ Laundering Regulations.
   transliterated names, aliases and date-of-birth ranges. Every hit is a candidate for
   human review, not a determination.
 - **Unconfirmed matches are deliberately low-severity.** Adverse media and Offshore
-  Leaks hits stay at `*_UNCONFIRMED` until an analyst confirms the specific article or
-  match. Don't promote them programmatically.
+  Leaks hits start at `*_UNCONFIRMED`. An Offshore Leaks match rises to
+  `OFFSHORE_LEAKS_HIT` only when an analyst confirms that specific match;
+  adverse-media flags stay low-severity even when confirmed. Don't confirm matches
+  programmatically.
 - **There is no PEP screening.** The platform ingests sanctions lists only. Nothing here
   identifies politically exposed persons.
 - **Check `isPartial()` before recording a clean result.** See

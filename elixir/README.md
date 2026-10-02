@@ -174,6 +174,7 @@ returns what it has and says so rather than silently reporting a clean result:
 if Assessment.partial?(assessment) do
   Logger.warning("Incomplete assessment",
     timed_out: assessment.timed_out_services,
+    unavailable_services: assessment.unavailable_services,
     failed_rules: assessment.failed_rules
   )
 end
@@ -182,18 +183,31 @@ end
 **Treat `partial?/1` as "not yet screened", not "clean".** An absent flag from a source
 that timed out is not evidence of absence.
 
-### Confirming noisy matches
+### Confirming and dismissing noisy matches
 
-Adverse media and Offshore Leaks matching is fuzzy, so unconfirmed hits only ever raise
-a low-severity `*_UNCONFIRMED` flag. Once an analyst has confirmed a specific article or
-match, pass it back to promote it to full severity:
+Adverse media and Offshore Leaks matching is fuzzy, so a match starts as a
+low-severity `*_UNCONFIRMED` flag. Once an analyst has reviewed a match, pass the
+decision back:
 
 ```elixir
 KYCCentral.KYC.assess(client, "00445790",
+  confirmed_leak_ids: ["icij-node-12345"],
+  dismissed_leak_ids: ["icij-node-67890"],
   confirmed_media_urls: ["https://news.example/article"],
-  confirmed_leak_ids: ["icij-node-12345"]
+  dismissed_media_urls: ["https://news.example/unrelated"]
 )
 ```
+
+- A confirmed Offshore Leaks match raises `OFFSHORE_LEAKS_HIT` in place of the
+  unconfirmed flag.
+- A confirmed adverse-media article is recorded and passed to the AI analysis, but
+  its flag stays low-severity: adverse media never rises above
+  `ADVERSE_MEDIA_UNCONFIRMED`.
+- A dismissed article or match drops its flag.
+
+The same call takes confirmed identity links (`:confirmed_psc_shareholder_links` and
+`:confirmed_officer_company_links`) and the company's FCA status (`:confirmed_fca_frn`,
+or `fca_not_applicable: true`).
 
 ### Queued assessments are handled for you
 
@@ -259,7 +273,8 @@ POSTs are retried only when the connection was never established, or on 429/503 
 422 are never retried — they will not become true on a second attempt.
 
 The AI endpoints (`Analysis.company/3`, `Analysis.adverse_media_overview/3`,
-`Analysis.filing_extract/4`, `Docs.ask/3`) default to a 120 s timeout, or the client's
+`Analysis.filing_extract/4`, `Analysis.charge_registration/4`, `Docs.ask/3`,
+`Reports.data/3`) default to a 120 s timeout, or the client's
 `:receive_timeout` if that is longer. Override it per call:
 
 ```elixir
@@ -358,12 +373,14 @@ argument.
 | `get/2` | `GET /companies/{n}` |
 | `dossier/2` | `GET /companies/{n}/dossier` |
 | `officers/2` | `GET /companies/{n}/officers` |
+| `officer_company_matches/2` | `GET /companies/{n}/officer-company-matches` |
 | `pscs/2` | `GET /companies/{n}/persons-with-significant-control` |
 | `psc_statements/2` | `GET /companies/{n}/persons-with-significant-control-statements` |
 | `psc_chain_depth/2` | `GET /companies/{n}/psc-chain-depth` |
 | `psc_chain_tree/2` | `GET /companies/{n}/psc-chain-tree` |
 | `charges/2` | `GET /companies/{n}/charges` |
 | `charge/3` | `GET /companies/{n}/charges/{id}` |
+| `charge_registrations/2` | `GET /companies/{n}/charges/registrations` |
 | `insolvency/2` | `GET /companies/{n}/insolvency` |
 | `disqualifications/2` | `GET /companies/{n}/disqualifications` |
 | `officer_disqualification/3` | `GET /companies/{n}/officers/{id}/disqualification` |
@@ -371,6 +388,7 @@ argument.
 | `filing_history/3` **Professional** | `GET /companies/{n}/filing-history` |
 | `filing_extract/3` **Professional** | `GET /companies/{n}/filing-history/{tx}/extract` |
 | `statement_of_capital/2` **Professional** | `GET /companies/{n}/statement-of-capital` |
+| `extract_charge_registration/3` **Professional** | `POST /companies/{n}/charges/registration` |
 
 `dossier/2` returns profile, officers, PSCs, charges, insolvency and filings in one
 request — cheaper than six separate calls.
@@ -416,13 +434,6 @@ Financial Sanctions Files.
 
 | Function | Endpoint |
 |---|---|
-| `KYCCentral.FCA.status/1` | `GET /fca/status` |
-| `KYCCentral.FCA.search/2` | `GET /fca/search` |
-| `KYCCentral.FCA.firm/2` | `GET /fca/firm/{frn}` |
-| `KYCCentral.FCA.firm_names/2` | `GET /fca/firm/{frn}/names` |
-| `KYCCentral.FCA.firm_individuals/2` | `GET /fca/firm/{frn}/individuals` |
-| `KYCCentral.FCA.screen_individuals/2` | `GET /fca/screen-individuals` |
-| `KYCCentral.FCA.check_individual/2` | `GET /fca/check-individual` |
 | `KYCCentral.GLEIF.company/2` | `GET /gleif/company` |
 | `KYCCentral.IndividualInsolvency.screen_company/2` | `GET /individual-insolvency/screen-company` |
 | `KYCCentral.Charity.status/1` | `GET /charity/status` |
@@ -448,9 +459,23 @@ FATF listings are refreshed after each plenary (roughly February, June and Octob
 | `KYCCentral.Analysis.company/3` **Professional** | `POST /analysis/company` |
 | `KYCCentral.Analysis.adverse_media_overview/3` **Professional** | `POST /analysis/adverse-media-overview` |
 | `KYCCentral.Analysis.filing_extract/4` | `POST /analysis/filing-extract` |
+| `KYCCentral.Analysis.charge_registration/4` | `POST /analysis/charge-registration` |
 | `KYCCentral.Docs.ask/3` | `POST /docs/ask` |
 | `KYCCentral.health/1` | `GET /health` |
 | `KYCCentral.data_source_health/1` | `GET /health/data-sources` |
+</details>
+
+<details>
+<summary><b>Reports</b> — <code>KYCCentral.Reports</code></summary>
+
+| Function | Endpoint |
+|---|---|
+| `KYCCentral.Reports.data/3` | `POST /billing/report-data` |
+
+The full report as JSON instead of a PDF. Requires an API key and uses one PDF report
+credit. A report is never returned with a required check missing: that is a 503 whose
+error carries `:retry_after` (about five minutes), and the credit is returned. The client
+does not retry it; wait and call again.
 </details>
 
 Endpoints that proxy an upstream registry return the decoded JSON as a plain map with
@@ -467,9 +492,11 @@ Laundering Regulations.
 - **Sanctions and adverse media matching is approximate.** Sanctions lists carry
   transliterated names, aliases and date-of-birth ranges. Every hit is a candidate for
   human review, not a determination.
-- **Unconfirmed matches are deliberately low-severity.** Adverse media and Offshore Leaks
-  hits stay at `*_UNCONFIRMED` until an analyst confirms the specific article or match.
-  Don't promote them programmatically.
+- **Unconfirmed matches are deliberately low-severity.** Adverse media and Offshore
+  Leaks hits start at `*_UNCONFIRMED`. An Offshore Leaks match rises to
+  `OFFSHORE_LEAKS_HIT` only when an analyst confirms that specific match;
+  adverse-media flags stay low-severity even when confirmed. Don't confirm matches
+  programmatically.
 - **There is no PEP screening.** The platform ingests sanctions lists only. Nothing here
   identifies politically exposed persons.
 - **Check `Assessment.partial?/1` before recording a clean result.** See

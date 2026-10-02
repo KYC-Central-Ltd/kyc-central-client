@@ -1,8 +1,8 @@
 /**
  * Shared types.
  *
- * Endpoints that proxy an upstream registry (Companies House, the FCA Register,
- * GLEIF, …) are typed as {@link JsonObject}: their shape is owned upstream, and
+ * Endpoints that proxy an upstream registry (Companies House, GLEIF, the Charity
+ * Commission, …) are typed as {@link JsonObject}: their shape is owned upstream, and
  * pinning it here would silently drop fields the moment upstream adds one. The
  * assessment result is the one response this API owns, so it is fully typed.
  */
@@ -79,6 +79,11 @@ export interface Assessment {
   officersSummary: JsonObject;
   pscSummary: JsonObject;
   pscChainDepth: number;
+  /**
+   * True when the ownership walk hit its depth limit, so `pscChainDepth` is a lower
+   * bound (at least N layers).
+   */
+  pscChainDepthCapped: boolean;
   pscStatementsSummary: JsonObject;
   chargesSummary: JsonObject;
   insolvencySummary: JsonObject;
@@ -103,6 +108,8 @@ export interface Assessment {
   // Run metadata
   /** Sources that did not answer in time. */
   timedOutServices: string[];
+  /** Sources that were unavailable, so their checks did not run. */
+  unavailableServices: string[];
   /** Rules that raised an error rather than returning a verdict. */
   failedRules: string[];
   ruleResults: RuleResult[];
@@ -191,6 +198,7 @@ export function parseAssessment(data: JsonObject): Assessment {
     officersSummary: asObject(data.officers_summary),
     pscSummary: asObject(data.psc_summary),
     pscChainDepth: Number(data.psc_chain_depth ?? 0),
+    pscChainDepthCapped: data.psc_chain_depth_capped === true,
     pscStatementsSummary: asObject(data.psc_statements_summary),
     chargesSummary: asObject(data.charges_summary),
     insolvencySummary: asObject(data.insolvency_summary),
@@ -212,6 +220,7 @@ export function parseAssessment(data: JsonObject): Assessment {
     vatSummary: asObject(data.vat_summary),
 
     timedOutServices: asStringArray(data.timed_out_services),
+    unavailableServices: asStringArray(data.unavailable_services),
     failedRules: asStringArray(data.failed_rules),
     ruleResults,
     pendingExtractions: asStringArray(data.pending_extractions),
@@ -230,7 +239,9 @@ export function isClear(assessment: Assessment): boolean {
 }
 
 /**
- * True when some data was unavailable, so the result is incomplete.
+ * True when some data was unavailable, so the result is incomplete: a source timed
+ * out (`timedOutServices`), was unavailable (`unavailableServices`), a rule failed
+ * (`failedRules`), or an extraction is still pending (`pendingExtractions`).
  *
  * A partial assessment is still usable, but an absent flag is not proof of a
  * clean result — treat it as "not yet screened".
@@ -238,6 +249,7 @@ export function isClear(assessment: Assessment): boolean {
 export function isPartial(assessment: Assessment): boolean {
   return (
     assessment.timedOutServices.length > 0 ||
+    assessment.unavailableServices.length > 0 ||
     assessment.failedRules.length > 0 ||
     assessment.pendingExtractions.length > 0
   );

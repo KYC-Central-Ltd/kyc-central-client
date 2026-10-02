@@ -71,6 +71,31 @@ def test_rate_limit_error_exposes_retry_after() -> None:
 
 
 @respx.mock
+def test_service_unavailable_error_exposes_retry_after() -> None:
+    respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        return_value=httpx.Response(
+            503, json={"detail": "try later"}, headers={"Retry-After": "300"}
+        )
+    )
+    with KYCCentral(api_key="k", base_url=BASE_URL, max_retries=0) as client:
+        with pytest.raises(ServiceUnavailableError) as excinfo:
+            client.rule_sets.list()
+    assert excinfo.value.retry_after == 300.0
+    assert excinfo.value.status_code == 503
+
+
+@respx.mock
+def test_service_unavailable_error_without_header_has_no_retry_after() -> None:
+    respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        return_value=httpx.Response(503, json={"detail": "try later"})
+    )
+    with KYCCentral(api_key="k", base_url=BASE_URL, max_retries=0) as client:
+        with pytest.raises(ServiceUnavailableError) as excinfo:
+            client.rule_sets.list()
+    assert excinfo.value.retry_after is None
+
+
+@respx.mock
 def test_validation_errors_are_flattened_into_the_message() -> None:
     respx.get(f"{BASE_URL}/v1/rule-sets").mock(
         return_value=httpx.Response(

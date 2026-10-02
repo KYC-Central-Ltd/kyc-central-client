@@ -34,10 +34,10 @@ defmodule KYCCentral.Sanctions do
 
   ## Options
 
-    * `:threshold` — minimum overall match score to return, between 0 and 1.
-      Raising it returns fewer, stronger candidates.
-    * `:vector_threshold` — minimum semantic-similarity score for the
-      nearest-neighbour stage that shortlists candidates.
+    * `:threshold` — fuzzy-match threshold, an integer from 1 to 100. Overrides
+      the server default; lower values return more, weaker candidates.
+    * `:vector_threshold` — vector-similarity threshold, from 0.0 to 1.0.
+      Overrides the server default.
   """
   @spec screen(KYCCentral.t(), String.t(), keyword()) :: result()
   def screen(client, name, opts \\ []) do
@@ -236,60 +236,6 @@ defmodule KYCCentral.OffshoreLeaks do
     with {:ok, id} <- segment(node_id, "node_id") do
       params = [name: opts[:name], node_type: opts[:node_type]]
       Transport.request(client, :get, "/offshore-leaks/node/#{id}", params: params)
-    end
-  end
-end
-
-defmodule KYCCentral.FCA do
-  @moduledoc """
-  Financial Conduct Authority register lookups.
-
-  Firms are identified by their Firm Reference Number (FRN).
-  """
-
-  import KYCCentral.Transport, only: [segment: 2]
-
-  alias KYCCentral.{Error, Transport}
-
-  @type result :: {:ok, map()} | {:error, Error.t()}
-
-  @doc "Whether FCA Register access is configured."
-  @spec status(KYCCentral.t()) :: result()
-  def status(client), do: Transport.request(client, :get, "/fca/status")
-
-  @doc "Search the register by firm or individual name."
-  @spec search(KYCCentral.t(), String.t()) :: result()
-  def search(client, q), do: Transport.request(client, :get, "/fca/search", params: [q: q])
-
-  @doc "A firm's register entry: permissions, status, addresses."
-  @spec firm(KYCCentral.t(), String.t()) :: result()
-  def firm(client, frn), do: firm_path(client, frn, "")
-
-  @doc "Trading names a firm operates under."
-  @spec firm_names(KYCCentral.t(), String.t()) :: result()
-  def firm_names(client, frn), do: firm_path(client, frn, "/names")
-
-  @doc "Approved individuals attached to a firm."
-  @spec firm_individuals(KYCCentral.t(), String.t()) :: result()
-  def firm_individuals(client, frn), do: firm_path(client, frn, "/individuals")
-
-  @doc "Check a company's officers and PSCs against the FCA register."
-  @spec screen_individuals(KYCCentral.t(), String.t()) :: result()
-  def screen_individuals(client, company_number) do
-    with {:ok, number} <- segment(company_number, "company_number") do
-      Transport.request(client, :get, "/fca/screen-individuals", params: [company_number: number])
-    end
-  end
-
-  @doc "Look up one individual on the FCA register by name."
-  @spec check_individual(KYCCentral.t(), String.t()) :: result()
-  def check_individual(client, name) do
-    Transport.request(client, :get, "/fca/check-individual", params: [name: name])
-  end
-
-  defp firm_path(client, frn, suffix) do
-    with {:ok, reference} <- segment(frn, "frn") do
-      Transport.request(client, :get, "/fca/firm/#{reference}#{suffix}")
     end
   end
 end

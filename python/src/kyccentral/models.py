@@ -1,7 +1,7 @@
 """Typed models for the KYC assessment result.
 
 Most endpoints in this API proxy or reshape upstream registry data (Companies
-House, the FCA Register, GLEIF, …) and are returned as plain ``dict`` objects so
+House, GLEIF, the Charity Commission, …) and are returned as plain ``dict`` objects so
 that new upstream fields are never silently dropped. The assessment produced by
 ``client.kyc.assess()`` is the one response with a contract of its own, so it is
 modelled here.
@@ -146,6 +146,9 @@ class Assessment:
     officers_summary: dict[str, Any] = field(default_factory=dict, repr=False)
     psc_summary: dict[str, Any] = field(default_factory=dict, repr=False)
     psc_chain_depth: int = 0
+    #: True when the ownership walk hit its depth limit, so ``psc_chain_depth``
+    #: is a lower bound (at least N layers).
+    psc_chain_depth_capped: bool = False
     psc_statements_summary: dict[str, Any] = field(default_factory=dict, repr=False)
     charges_summary: dict[str, Any] = field(default_factory=dict, repr=False)
     insolvency_summary: dict[str, Any] = field(default_factory=dict, repr=False)
@@ -169,6 +172,7 @@ class Assessment:
 
     # Run metadata
     timed_out_services: list[str] = field(default_factory=list)
+    unavailable_services: list[str] = field(default_factory=list)
     failed_rules: list[str] = field(default_factory=list)
     rule_results: list[RuleResult] = field(default_factory=list, repr=False)
     pending_extractions: list[str] = field(default_factory=list)
@@ -202,6 +206,7 @@ class Assessment:
             officers_summary=_dict("officers_summary"),
             psc_summary=_dict("psc_summary"),
             psc_chain_depth=int(data.get("psc_chain_depth") or 0),
+            psc_chain_depth_capped=bool(data.get("psc_chain_depth_capped")),
             psc_statements_summary=_dict("psc_statements_summary"),
             charges_summary=_dict("charges_summary"),
             insolvency_summary=_dict("insolvency_summary"),
@@ -221,6 +226,7 @@ class Assessment:
             offshore_leaks_summary=_dict("offshore_leaks_summary"),
             vat_summary=_dict("vat_summary"),
             timed_out_services=_list("timed_out_services"),
+            unavailable_services=_list("unavailable_services"),
             failed_rules=_list("failed_rules"),
             rule_results=rule_results,
             pending_extractions=_list("pending_extractions"),
@@ -249,10 +255,16 @@ class Assessment:
         """True when some data was unavailable, so the result is incomplete.
 
         A partial assessment is still usable, but an absent flag is not proof of
-        a clean result: check :attr:`timed_out_services`, :attr:`failed_rules`
-        and :attr:`pending_extractions` before treating it as a full screen.
+        a clean result: check :attr:`timed_out_services`,
+        :attr:`unavailable_services`, :attr:`failed_rules` and
+        :attr:`pending_extractions` before treating it as a full screen.
         """
-        return bool(self.timed_out_services or self.failed_rules or self.pending_extractions)
+        return bool(
+            self.timed_out_services
+            or self.unavailable_services
+            or self.failed_rules
+            or self.pending_extractions
+        )
 
     def flags_at(self, *levels: RiskLevel) -> list[RiskFlag]:
         """Flags matching any of ``levels``, ordered as returned by the API."""

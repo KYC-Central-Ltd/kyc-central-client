@@ -394,6 +394,13 @@ def _seg(value: str, name: str) -> str:
     return quote(str(value).strip(), safe="")
 
 
+def _charge_key(value: str) -> str:
+    """Reject a blank charge key and return it trimmed."""
+    if value is None or not str(value).strip():
+        raise ValueError("charge_key must be a non-empty string")
+    return str(value).strip()
+
+
 def _names_body(names: Sequence[str], *, limit: int | None = None) -> dict[str, Any]:
     """Build the ``{"names": [...]}`` body used by the batch screening endpoints."""
     cleaned = [str(n).strip() for n in names if str(n).strip()]

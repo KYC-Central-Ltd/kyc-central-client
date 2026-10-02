@@ -92,6 +92,7 @@ export type {
   AICallOptions,
   AdverseMediaOverviewOptions,
   AnalyseCompanyOptions,
+  ChargeRegistrationOptions,
   DocsAskOptions,
   DocsTurn,
   FilingExtractMode,
@@ -99,5 +100,7 @@ export type {
 } from './resources/analysis.js';
 
 export type { CharityOptions } from './resources/registries.js';
+
+export type { ReportDataOptions } from './resources/reports.js';
 
 export { VERSION } from './version.js';

@@ -48,6 +48,7 @@ def assessment_payload() -> dict[str, Any]:
         "officers_summary": {"total": 12},
         "psc_summary": {"total": 3},
         "psc_chain_depth": 2,
+        "psc_chain_depth_capped": False,
         "charges_summary": {},
         "insolvency_summary": {},
         "filing_summary": {},
@@ -71,6 +72,7 @@ def assessment_payload() -> dict[str, Any]:
             },
         ],
         "timed_out_services": [],
+        "unavailable_services": [],
         "failed_rules": [],
         "pending_extractions": [],
     }

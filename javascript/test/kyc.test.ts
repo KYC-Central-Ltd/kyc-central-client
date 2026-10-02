@@ -58,6 +58,78 @@ describe('assess', () => {
     expect(isPartial(await client.kyc.assess('00445790'))).toBe(true);
   });
 
+  it('marks an assessment as partial when only unavailable_services is set', async () => {
+    const payload = assessmentPayload();
+    payload.unavailable_services = ['adverse_media'];
+    const assessment = await clientWith([jsonResponse(payload)]).kyc.assess('00445790');
+
+    expect(assessment.unavailableServices).toEqual(['adverse_media']);
+    expect(isPartial(assessment)).toBe(true);
+  });
+
+  it('parses psc_chain_depth_capped and unavailable_services, with defaults', async () => {
+    const payload = assessmentPayload();
+    payload.psc_chain_depth_capped = true;
+    payload.unavailable_services = ['sanctions', 'gleif'];
+    const capped = await clientWith([jsonResponse(payload)]).kyc.assess('00445790');
+    expect(capped.pscChainDepthCapped).toBe(true);
+    expect(capped.unavailableServices).toEqual(['sanctions', 'gleif']);
+
+    const bare = assessmentPayload();
+    delete bare.psc_chain_depth_capped;
+    delete bare.unavailable_services;
+    const defaults = await clientWith([jsonResponse(bare)]).kyc.assess('00445790');
+    expect(defaults.pscChainDepthCapped).toBe(false);
+    expect(defaults.unavailableServices).toEqual([]);
+  });
+
+  it('sends each new assess option', async () => {
+    const fetch = mockFetch([jsonResponse(assessmentPayload())]);
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch });
+
+    await client.kyc.assess('00445790', {
+      dismissedMediaUrls: ['https://a.example', 'https://b.example'],
+      dismissedLeakIds: ['n1', 'n2'],
+      confirmedOfficerCompanyLinks: ['ACME HOLDINGS||01234567', 'FOO LTD||07654321'],
+      confirmedFcaFrn: '123456',
+      fcaNotApplicable: true,
+    });
+
+    const url = new URL(fetch.mock.calls[0]![0]);
+    expect(url.searchParams.getAll('dismissed_media_url')).toEqual([
+      'https://a.example',
+      'https://b.example',
+    ]);
+    expect(url.searchParams.getAll('dismissed_leak_id')).toEqual(['n1', 'n2']);
+    expect(url.searchParams.getAll('confirmed_officer_company_link')).toEqual([
+      'ACME HOLDINGS||01234567',
+      'FOO LTD||07654321',
+    ]);
+    expect(url.searchParams.getAll('confirmed_fca_frn')).toEqual(['123456']);
+    expect(url.searchParams.getAll('fca_not_applicable')).toEqual(['true']);
+  });
+
+  it('omits fca_not_applicable and the other new options when unset or false', async () => {
+    const fetch = mockFetch([jsonResponse(assessmentPayload()), jsonResponse(assessmentPayload())]);
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch });
+
+    await client.kyc.assess('00445790');
+    await client.kyc.assess('00445790', { fcaNotApplicable: false });
+
+    for (const call of fetch.mock.calls) {
+      const url = new URL(call[0]);
+      for (const key of [
+        'fca_not_applicable',
+        'confirmed_fca_frn',
+        'dismissed_media_url',
+        'dismissed_leak_id',
+        'confirmed_officer_company_link',
+      ]) {
+        expect(url.searchParams.has(key)).toBe(false);
+      }
+    }
+  });
+
   it('tolerates a severity this client version predates', async () => {
     const payload = assessmentPayload();
     payload.flags[0].severity = 'catastrophic';

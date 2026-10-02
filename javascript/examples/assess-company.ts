@@ -55,6 +55,9 @@ async function main(companyNumber: string): Promise<number> {
     if (assessment.timedOutServices.length) {
       console.log(`  Timed out: ${assessment.timedOutServices.join(', ')}`);
     }
+    if (assessment.unavailableServices.length) {
+      console.log(`  Unavailable: ${assessment.unavailableServices.join(', ')}`);
+    }
     if (assessment.failedRules.length) {
       console.log(`  Rules that errored: ${assessment.failedRules.join(', ')}`);
     }

@@ -129,7 +129,16 @@ class ServerError(APIStatusError):
 
 
 class ServiceUnavailableError(ServerError):
-    """503 — a dependency the API needs is temporarily unavailable."""
+    """503 — a dependency the API needs is temporarily unavailable.
+
+    Attributes:
+        retry_after: Seconds to wait before retrying, taken from the
+            ``Retry-After`` response header when the API sends one.
+    """
+
+    def __init__(self, message: str, *, retry_after: float | None = None, **kwargs: Any) -> None:
+        super().__init__(message, **kwargs)
+        self.retry_after = retry_after
 
 
 class JobError(KYCCentralError):
@@ -191,6 +200,17 @@ def _extract_detail(body: Any, fallback: str) -> str:
     return fallback
 
 
+def _parse_retry_after(headers: Mapping[str, str]) -> float | None:
+    """The ``Retry-After`` header as numeric seconds, or ``None`` when absent."""
+    raw_retry = headers.get("Retry-After") or headers.get("retry-after")
+    if raw_retry:
+        try:
+            return float(raw_retry)
+        except ValueError:
+            return None
+    return None
+
+
 def status_error_from_response(
     status_code: int,
     body: Any,
@@ -203,17 +223,11 @@ def status_error_from_response(
     detail = _extract_detail(body, f"HTTP {status_code}")
     message = f"{method} {url} failed with {status_code}: {detail}"
 
-    if status_code == 429:
-        retry_after: float | None = None
-        raw_retry = headers.get("Retry-After") or headers.get("retry-after")
-        if raw_retry:
-            try:
-                retry_after = float(raw_retry)
-            except ValueError:
-                retry_after = None
-        return RateLimitError(
+    if status_code in (429, 503):
+        retry_cls = RateLimitError if status_code == 429 else ServiceUnavailableError
+        return retry_cls(
             message,
-            retry_after=retry_after,
+            retry_after=_parse_retry_after(headers),
             status_code=status_code,
             detail=detail,
             body=body,

@@ -1,6 +1,6 @@
 /** AI analysis endpoints and the product documentation assistant. */
 
-import { AI_TIMEOUT_MS, type Transport } from '../transport.js';
+import { AI_TIMEOUT_MS, trimChargeKey, type Transport } from '../transport.js';
 import type { JsonObject } from '../types.js';
 import type { CallOptions } from './companies.js';
 
@@ -33,6 +33,11 @@ export interface AnalyseCompanyOptions extends AICallOptions {
   context?: JsonObject;
 }
 
+export interface ChargeRegistrationOptions extends AICallOptions {
+  /** Override the AI provider. */
+  provider?: string;
+}
+
 export interface AdverseMediaOverviewOptions extends AICallOptions {
   provider?: string;
   /** Search results to summarise, as returned by `news.screenCompany()`. */
@@ -57,7 +62,7 @@ export interface DocsAskOptions extends AICallOptions {
 }
 
 /** `signal` plus the effective timeout: the per-call value, else max(client, 120 s). */
-function aiRequest(
+export function aiRequest(
   transport: Transport,
   options: AICallOptions,
 ): { signal?: AbortSignal; timeoutMs: number } {
@@ -142,6 +147,33 @@ export class Analysis {
     if (options.provider !== undefined) body.provider = options.provider;
 
     return this.transport.post('/analysis/filing-extract', {
+      body,
+      ...aiRequest(this.transport, options),
+    });
+  }
+
+  /**
+   * Read a charge's "Registration of a charge" form with a vision-capable LLM, for
+   * forms with no text layer (paper and pre-2013 filings) — the case
+   * `companies.extractChargeRegistration` answers with `needs_ai`. Returns the same
+   * merged record, with source `"ai_vision"`; an unreadable form returns
+   * `{"available": false, "reason": ...}`. Spends AI credits on first use; a repeat
+   * call for the same charge is served from the stored record.
+   *
+   * @throws {TypeError} `chargeKey` is blank.
+   */
+  async chargeRegistration(
+    companyNumber: string,
+    chargeKey: string,
+    options: ChargeRegistrationOptions = {},
+  ): Promise<JsonObject> {
+    const body: JsonObject = {
+      company_number: companyNumber,
+      charge_key: trimChargeKey(chargeKey),
+    };
+    if (options.provider !== undefined) body.provider = options.provider;
+
+    return this.transport.post('/analysis/charge-registration', {
       body,
       ...aiRequest(this.transport, options),
     });

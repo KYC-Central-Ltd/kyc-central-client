@@ -153,25 +153,43 @@ returns what it has and says so rather than silently reporting a clean result:
 
 ```python
 if assessment.is_partial:
-    print("Incomplete:", assessment.timed_out_services, assessment.failed_rules)
+    print(
+        "Incomplete:",
+        assessment.timed_out_services,
+        assessment.unavailable_services,
+        assessment.failed_rules,
+    )
 ```
 
 **Treat `is_partial` as "not yet screened", not "clean".** An absent flag from a source
 that timed out is not evidence of absence.
 
-### Confirming noisy matches
+### Confirming and dismissing noisy matches
 
-Adverse media and Offshore Leaks matching is fuzzy, so unconfirmed hits only ever raise
-a low-severity `*_UNCONFIRMED` flag. Once an analyst has confirmed a specific article or
-match, pass it back to promote it to full severity:
+Adverse media and Offshore Leaks matching is fuzzy, so a match starts as a
+low-severity `*_UNCONFIRMED` flag. Once an analyst has reviewed a match, pass the
+decision back:
 
 ```python
 assessment = client.kyc.assess(
     "00445790",
-    confirmed_media_urls=["https://news.example/article"],
     confirmed_leak_ids=["icij-node-12345"],
+    dismissed_leak_ids=["icij-node-67890"],
+    confirmed_media_urls=["https://news.example/article"],
+    dismissed_media_urls=["https://news.example/unrelated"],
 )
 ```
+
+- A confirmed Offshore Leaks match raises `OFFSHORE_LEAKS_HIT` in place of the
+  unconfirmed flag.
+- A confirmed adverse-media article is recorded and passed to the AI analysis, but
+  its flag stays low-severity: adverse media never rises above
+  `ADVERSE_MEDIA_UNCONFIRMED`.
+- A dismissed article or match drops its flag.
+
+The same call takes confirmed identity links (`confirmed_psc_shareholder_links` and
+`confirmed_officer_company_links`) and the company's FCA status (`confirmed_fca_frn`, or
+`fca_not_applicable=True`).
 
 ### Queued assessments are handled for you
 
@@ -324,12 +342,14 @@ Every documented endpoint is available. Each namespace has an identical `Async` 
 | `get(company_number)` | `GET /companies/{n}` |
 | `dossier(n)` | `GET /companies/{n}/dossier` |
 | `officers(n)` | `GET /companies/{n}/officers` |
+| `officer_company_matches(n)` | `GET /companies/{n}/officer-company-matches` |
 | `pscs(n)` | `GET /companies/{n}/persons-with-significant-control` |
 | `psc_statements(n)` | `GET /companies/{n}/persons-with-significant-control-statements` |
 | `psc_chain_depth(n)` | `GET /companies/{n}/psc-chain-depth` |
 | `psc_chain_tree(n)` | `GET /companies/{n}/psc-chain-tree` |
 | `charges(n)` | `GET /companies/{n}/charges` |
 | `charge(n, charge_id)` | `GET /companies/{n}/charges/{id}` |
+| `charge_registrations(n)` | `GET /companies/{n}/charges/registrations` |
 | `insolvency(n)` | `GET /companies/{n}/insolvency` |
 | `disqualifications(n)` | `GET /companies/{n}/disqualifications` |
 | `officer_disqualification(n, officer_id)` | `GET /companies/{n}/officers/{id}/disqualification` |
@@ -337,6 +357,7 @@ Every documented endpoint is available. Each namespace has an identical `Async` 
 | `filing_history(n, …)` **Professional** | `GET /companies/{n}/filing-history` |
 | `filing_extract(n, transaction_id)` **Professional** | `GET /companies/{n}/filing-history/{tx}/extract` |
 | `statement_of_capital(n)` **Professional** | `GET /companies/{n}/statement-of-capital` |
+| `extract_charge_registration(n, charge_key)` **Professional** | `POST /companies/{n}/charges/registration` |
 
 `dossier()` returns profile, officers, PSCs, charges, insolvency and filings in one
 request — cheaper than six separate calls.
@@ -378,17 +399,10 @@ Financial Sanctions Files.
 </details>
 
 <details>
-<summary><b>Registries</b> — <code>client.fca</code>, <code>client.gleif</code>, <code>client.individual_insolvency</code>, <code>client.charity</code>, <code>client.hmrc_vat</code></summary>
+<summary><b>Registries</b> — <code>client.gleif</code>, <code>client.individual_insolvency</code>, <code>client.charity</code>, <code>client.hmrc_vat</code></summary>
 
 | Method | Endpoint |
 |---|---|
-| `fca.status()` | `GET /fca/status` |
-| `fca.search(q)` | `GET /fca/search` |
-| `fca.firm(frn)` | `GET /fca/firm/{frn}` |
-| `fca.firm_names(frn)` | `GET /fca/firm/{frn}/names` |
-| `fca.firm_individuals(frn)` | `GET /fca/firm/{frn}/individuals` |
-| `fca.screen_individuals(n)` | `GET /fca/screen-individuals` |
-| `fca.check_individual(name)` | `GET /fca/check-individual` |
 | `gleif.company(n)` | `GET /gleif/company` |
 | `individual_insolvency.screen_company(n)` | `GET /individual-insolvency/screen-company` |
 | `charity.status()` | `GET /charity/status` |
@@ -421,7 +435,21 @@ FATF listings are refreshed after each plenary (roughly February, June and Octob
 | `analysis.company(n, …)` **Professional** | `POST /analysis/company` |
 | `analysis.adverse_media_overview(n, …)` **Professional** | `POST /analysis/adverse-media-overview` |
 | `analysis.filing_extract(n, tx, …)` | `POST /analysis/filing-extract` |
+| `analysis.charge_registration(n, charge_key, …)` | `POST /analysis/charge-registration` |
 | `docs.ask(message, …)` | `POST /docs/ask` |
+</details>
+
+<details>
+<summary><b>Reports</b> — <code>client.reports</code></summary>
+
+| Method | Endpoint |
+|---|---|
+| `reports.data(n, …)` | `POST /billing/report-data` |
+
+`reports.data()` returns the full report as JSON instead of a PDF. It requires an API key
+and uses one PDF report credit. If a required check is unavailable the API answers 503
+with `Retry-After` and returns the credit; the client does not retry it, so wait for
+`error.retry_after` and call again.
 </details>
 
 <details>
@@ -447,8 +475,10 @@ Laundering Regulations.
   transliterated names, aliases and date-of-birth ranges. Every hit is a candidate for
   human review, not a determination.
 - **Unconfirmed matches are deliberately low-severity.** Adverse media and Offshore
-  Leaks hits stay at `*_UNCONFIRMED` until an analyst confirms the specific article or
-  match. Don't promote them programmatically.
+  Leaks hits start at `*_UNCONFIRMED`. An Offshore Leaks match rises to
+  `OFFSHORE_LEAKS_HIT` only when an analyst confirms that specific match;
+  adverse-media flags stay low-severity even when confirmed. Don't confirm matches
+  programmatically.
 - **There is no PEP screening.** The platform ingests sanctions lists only. Nothing here
   identifies politically exposed persons.
 - **Check `is_partial` before recording a clean result.** See

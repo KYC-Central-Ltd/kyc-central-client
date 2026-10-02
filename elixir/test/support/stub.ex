@@ -155,6 +155,7 @@ defmodule KYCCentral.Stub do
       "officers_summary" => %{"total" => 12},
       "psc_summary" => %{"total" => 3},
       "psc_chain_depth" => 2,
+      "psc_chain_depth_capped" => false,
       "rule_results" => [
         %{
           "code" => "ACCOUNTS_OVERDUE",
@@ -174,6 +175,7 @@ defmodule KYCCentral.Stub do
         }
       ],
       "timed_out_services" => [],
+      "unavailable_services" => [],
       "failed_rules" => [],
       "pending_extractions" => []
     }

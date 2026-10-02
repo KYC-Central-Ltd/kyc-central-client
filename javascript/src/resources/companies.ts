@@ -1,6 +1,6 @@
 /** Companies House company, officer, PSC, charge and filing data. */
 
-import { seg, type QueryParams, type Transport } from '../transport.js';
+import { seg, trimChargeKey, type QueryParams, type Transport } from '../transport.js';
 import type { JsonObject } from '../types.js';
 
 /** Options accepted by every call: cancellation via an `AbortSignal`. */
@@ -20,15 +20,19 @@ export interface FilingHistoryOptions extends PageOptions {
   category?: string;
 }
 
-/** Filters for {@link Companies.advancedSearch}. Dates are `YYYY-MM-DD`. */
+/**
+ * Filters for {@link Companies.advancedSearch}. Dates are `YYYY-MM-DD`.
+ *
+ * Each of `companyStatus`, `companyType` and `sicCodes` takes a single value,
+ * matched exactly.
+ */
 export interface AdvancedSearchOptions extends PageOptions {
   companyNameIncludes?: string;
   companyNameExcludes?: string;
-  /** Repeatable: `["active", "liquidation"]` matches either. */
-  companyStatus?: string[];
-  companyType?: string[];
+  companyStatus?: string;
+  companyType?: string;
   location?: string;
-  sicCodes?: string[];
+  sicCodes?: string;
   incorporatedFrom?: string;
   incorporatedTo?: string;
   dissolvedFrom?: string;
@@ -105,6 +109,23 @@ export class Companies {
     );
   }
 
+  /**
+   * Suggest which registered company each unidentified corporate officer might be.
+   *
+   * Returns `{"matches": {officerName: [candidate, ...]}}`. Suggestions only, for a
+   * human to review; confirm one by passing `confirmedOfficerCompanyLinks` to
+   * `kyc.assess`.
+   */
+  async officerCompanyMatches(
+    companyNumber: string,
+    options: CallOptions = {},
+  ): Promise<JsonObject> {
+    return this.transport.get(
+      `/companies/${seg(companyNumber, 'companyNumber')}/officer-company-matches`,
+      options,
+    );
+  }
+
   /** Registered beneficial owners (PSCs). */
   async pscs(companyNumber: string, options: CallOptions = {}): Promise<JsonObject> {
     return this.transport.get(
@@ -150,6 +171,18 @@ export class Companies {
   ): Promise<JsonObject> {
     return this.transport.get(
       `/companies/${seg(companyNumber, 'companyNumber')}/charges/${seg(chargeId, 'chargeId')}`,
+      options,
+    );
+  }
+
+  /**
+   * Charge registration records already extracted for this company, as
+   * `{"items": [...]}`: the full charge-holder list and level-of-influence signals
+   * for each. Empty until `extractChargeRegistration` has been run.
+   */
+  async chargeRegistrations(companyNumber: string, options: CallOptions = {}): Promise<JsonObject> {
+    return this.transport.get(
+      `/companies/${seg(companyNumber, 'companyNumber')}/charges/registrations`,
       options,
     );
   }
@@ -232,6 +265,32 @@ export class Companies {
     return this.transport.get(
       `/companies/${seg(companyNumber, 'companyNumber')}/statement-of-capital`,
       options,
+    );
+  }
+
+  /**
+   * Extract the full charge-holder list and level-of-influence signals for one
+   * charge, without spending AI credits.
+   *
+   * `chargeKey` is the charge code (e.g. `"094462310004"`), or
+   * `"{companyNumber}-{chargeNumber}"` for pre-2013 charges. Paper and pre-2013
+   * forms have no text layer; the response is then
+   * `{"needs_ai": true, "charge_key", "filing_transaction_id"}` and
+   * `analysis.chargeRegistration` can read the form instead.
+   *
+   * **Requires an active Professional subscription.**
+   *
+   * @throws {TypeError} `chargeKey` is blank.
+   */
+  async extractChargeRegistration(
+    companyNumber: string,
+    chargeKey: string,
+    options: CallOptions = {},
+  ): Promise<JsonObject> {
+    const key = trimChargeKey(chargeKey);
+    return this.transport.post(
+      `/companies/${seg(companyNumber, 'companyNumber')}/charges/registration`,
+      { body: { charge_key: key }, signal: options.signal },
     );
   }
 }

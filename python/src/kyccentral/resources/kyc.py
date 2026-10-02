@@ -41,6 +41,11 @@ def _assess_params(
     confirmed_media_urls: Sequence[str] | None,
     confirmed_leak_ids: Sequence[str] | None,
     confirmed_psc_shareholder_links: Sequence[str] | None,
+    dismissed_media_urls: Sequence[str] | None,
+    dismissed_leak_ids: Sequence[str] | None,
+    confirmed_officer_company_links: Sequence[str] | None,
+    confirmed_fca_frn: str | None,
+    fca_not_applicable: bool,
 ) -> JSON:
     if not company_number and not q:
         raise ValueError("Provide either company_number or q.")
@@ -52,10 +57,17 @@ def _assess_params(
         "rule_set_id": rule_set_id,
         "rule_code": rule_code,
         "confirmed_media_url": list(confirmed_media_urls) if confirmed_media_urls else None,
+        "dismissed_media_url": list(dismissed_media_urls) if dismissed_media_urls else None,
         "confirmed_leak_id": list(confirmed_leak_ids) if confirmed_leak_ids else None,
+        "dismissed_leak_id": list(dismissed_leak_ids) if dismissed_leak_ids else None,
         "confirmed_psc_shareholder_link": (
             list(confirmed_psc_shareholder_links) if confirmed_psc_shareholder_links else None
         ),
+        "confirmed_officer_company_link": (
+            list(confirmed_officer_company_links) if confirmed_officer_company_links else None
+        ),
+        "confirmed_fca_frn": confirmed_fca_frn,
+        "fca_not_applicable": True if fca_not_applicable else None,
     }
 
 
@@ -137,8 +149,13 @@ class Kyc(SyncResource):
         rule_set_id: str | None = None,
         rule_code: str | None = None,
         confirmed_media_urls: Sequence[str] | None = None,
+        dismissed_media_urls: Sequence[str] | None = None,
         confirmed_leak_ids: Sequence[str] | None = None,
+        dismissed_leak_ids: Sequence[str] | None = None,
         confirmed_psc_shareholder_links: Sequence[str] | None = None,
+        confirmed_officer_company_links: Sequence[str] | None = None,
+        confirmed_fca_frn: str | None = None,
+        fca_not_applicable: bool = False,
         wait: bool = True,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
         poll_timeout: float = DEFAULT_POLL_TIMEOUT,
@@ -155,15 +172,30 @@ class Kyc(SyncResource):
                 Call ``client.rule_sets.list()`` for the available sets.
             rule_code: Run a single rule instead of a whole set, e.g.
                 ``"ACCOUNTS_OVERDUE"``. Overrides ``rule_set_id``.
-            confirmed_media_urls: Adverse-media article URLs an analyst has
-                already confirmed as genuine hits. Unconfirmed matches only ever
-                raise a low-severity ``ADVERSE_MEDIA_UNCONFIRMED`` flag; passing
-                a URL here promotes that article to its full severity.
+            confirmed_media_urls: Adverse-media article URLs an analyst has reviewed
+                and confirmed as genuine. Recorded and passed to the AI analysis.
+                Does not change severity: adverse-media flags always stay at
+                low-severity ``ADVERSE_MEDIA_UNCONFIRMED``.
+            dismissed_media_urls: Adverse-media article URLs an analyst has
+                confirmed as not relevant. Drops ``ADVERSE_MEDIA_UNCONFIRMED`` for
+                those articles.
             confirmed_leak_ids: ICIJ Offshore Leaks match ids an analyst has
-                confirmed, promoting ``OFFSHORE_LEAKS_UNCONFIRMED`` in the same way.
+                confirmed as genuine. Raises ``OFFSHORE_LEAKS_HIT`` for those
+                matches in place of the low-severity ``OFFSHORE_LEAKS_UNCONFIRMED``.
+            dismissed_leak_ids: ICIJ Offshore Leaks match ids an analyst has
+                confirmed as not relevant. Drops the Offshore Leaks flag for those
+                matches.
             confirmed_psc_shareholder_links: Analyst-confirmed identity links
                 between a PSC and a shareholder, each formatted
                 ``"<psc name>||<shareholder name>"``.
+            confirmed_officer_company_links: Analyst-confirmed links between a
+                corporate officer and the registered company it is, each formatted
+                ``"<officer name>||<company number>"``.
+                ``companies.officer_company_matches`` suggests candidates.
+            confirmed_fca_frn: An analyst-confirmed FCA firm reference number
+                (FRN) for this company. At most 10 characters.
+            fca_not_applicable: The analyst has marked this company as not
+                FCA-regulated. Wins over ``confirmed_fca_frn`` when both are set.
             wait: When True (the default), poll a queued assessment to completion
                 and return the finished result. When False, return the raw
                 ``{"job_id": ..., "status": "queued"}`` envelope immediately if
@@ -195,6 +227,11 @@ class Kyc(SyncResource):
                 confirmed_media_urls,
                 confirmed_leak_ids,
                 confirmed_psc_shareholder_links,
+                dismissed_media_urls,
+                dismissed_leak_ids,
+                confirmed_officer_company_links,
+                confirmed_fca_frn,
+                fca_not_applicable,
             ),
         )
 
@@ -235,8 +272,13 @@ class AsyncKyc(AsyncResource):
         rule_set_id: str | None = None,
         rule_code: str | None = None,
         confirmed_media_urls: Sequence[str] | None = None,
+        dismissed_media_urls: Sequence[str] | None = None,
         confirmed_leak_ids: Sequence[str] | None = None,
+        dismissed_leak_ids: Sequence[str] | None = None,
         confirmed_psc_shareholder_links: Sequence[str] | None = None,
+        confirmed_officer_company_links: Sequence[str] | None = None,
+        confirmed_fca_frn: str | None = None,
+        fca_not_applicable: bool = False,
         wait: bool = True,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
         poll_timeout: float = DEFAULT_POLL_TIMEOUT,
@@ -253,6 +295,11 @@ class AsyncKyc(AsyncResource):
                 confirmed_media_urls,
                 confirmed_leak_ids,
                 confirmed_psc_shareholder_links,
+                dismissed_media_urls,
+                dismissed_leak_ids,
+                confirmed_officer_company_links,
+                confirmed_fca_frn,
+                fca_not_applicable,
             ),
         )
 

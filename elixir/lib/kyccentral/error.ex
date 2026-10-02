@@ -34,7 +34,8 @@ defmodule KYCCentral.Error do
     * `:unprocessable_entity` (422) — failed the API's validation rules.
     * `:rate_limit` (429) — a rate limit or plan quota was exceeded.
     * `:server_error` (5xx) — the API failed to handle a valid request.
-    * `:service_unavailable` (503) — a dependency the API needs is down.
+    * `:service_unavailable` (503) — a dependency the API needs is down. Like
+      `:rate_limit`, it carries `:retry_after` when the API sends `Retry-After`.
     * `:unexpected_status` — any other non-2xx status.
 
   Queued assessments:
@@ -114,7 +115,7 @@ defmodule KYCCentral.Error do
       detail: detail,
       body: body,
       headers: headers,
-      retry_after: if(status == 429, do: retry_after(headers))
+      retry_after: if(status in [429, 503], do: retry_after(headers))
     }
   end
 

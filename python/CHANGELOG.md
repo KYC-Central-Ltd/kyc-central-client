@@ -13,8 +13,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   forwarded on cross-origin redirects, so a redirect to another host could leak the key. A
   3xx now raises a status error carrying the `Location` header.
 
+### Removed
+
+- The `fca` namespace (`client.fca`, `Fca`, `AsyncFca`): the API now serves `/v1/fca/*` to
+  signed-in sessions only, so every call returned 401.
+
 ### Changed
 
+- Advanced-search `company_status` / `company_type` / `sic_codes` take a single string (the
+  API never accepted several; a list silently applied one value).
+- `sanctions.screen` `threshold` is an integer from 1 to 100 (it was documented wrongly as
+  0-1).
+- `charity.get` `suffix` is an integer.
+- Confirming an adverse-media article no longer raises its severity (API behaviour; docs
+  corrected).
 - An unrecognised severity or risk level now maps to a new `unknown` level that ranks above
   `critical`, instead of `low`, so a value this version doesn't know is never filtered out
   by `flags_at_or_above`. The original string is still on `raw`.
@@ -27,11 +39,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `unavailable_services` and `psc_chain_depth_capped` on the assessment.
+- Five new `kyc.assess` options: `dismissed_media_urls`, `dismissed_leak_ids`,
+  `confirmed_officer_company_links`, `confirmed_fca_frn` and `fca_not_applicable`.
+- `companies.officer_company_matches`, `companies.charge_registrations`,
+  `companies.extract_charge_registration` (Professional), `analysis.charge_registration`
+  and `reports.data`.
+- `ServiceUnavailableError.retry_after`, parsed from the `Retry-After` header like
+  `RateLimitError.retry_after`.
 - Per-call `timeout` option on the AI endpoints, defaulting to 120 s (or the client
   timeout, if longer).
 
 ### Fixed
 
+- `Assessment.is_partial` now counts `unavailable_services`.
 - A clean `Assessment` (no flags) is now truthy; `__len__` made it falsy, so
   `if assessment:` misfired.
 - An empty or whitespace-only API key (explicit or from `KYCCENTRAL_API_KEY`) is now treated

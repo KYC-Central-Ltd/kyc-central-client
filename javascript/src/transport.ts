@@ -414,6 +414,14 @@ export function seg(value: string, name: string): string {
   return encodeURIComponent(String(value).trim());
 }
 
+/** Reject a blank charge key and return it trimmed. */
+export function trimChargeKey(value: string): string {
+  if (value === null || value === undefined || String(value).trim() === '') {
+    throw new TypeError('chargeKey must be a non-empty string');
+  }
+  return String(value).trim();
+}
+
 /** Build the `{ names: [...] }` body used by the batch screening endpoints. */
 export function namesBody(names: readonly string[], limit?: number): { names: string[] } {
   const cleaned = names.map((name) => String(name).trim()).filter(Boolean);

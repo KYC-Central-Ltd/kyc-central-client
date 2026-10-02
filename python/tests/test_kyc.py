@@ -66,6 +66,38 @@ def test_partial_assessments_are_flagged(client: KYCCentral, assessment_payload)
 
 
 @respx.mock
+def test_assessment_partial_when_only_unavailable_services(
+    client: KYCCentral, assessment_payload
+) -> None:
+    assessment_payload["unavailable_services"] = ["fca"]
+    respx.get(url__startswith=f"{BASE_URL}/v1/kyc/assess").mock(
+        return_value=httpx.Response(200, json=assessment_payload)
+    )
+    result = client.kyc.assess("00445790")
+    assert result.unavailable_services == ["fca"]
+    assert result.timed_out_services == []
+    assert result.is_partial is True
+
+
+def test_new_assessment_fields_parse_and_default(assessment_payload) -> None:
+    parsed = Assessment.from_dict(assessment_payload)
+    assert parsed.psc_chain_depth_capped is False
+    assert parsed.unavailable_services == []
+
+    assessment_payload["psc_chain_depth_capped"] = True
+    assessment_payload["unavailable_services"] = ["gleif", "fca"]
+    parsed = Assessment.from_dict(assessment_payload)
+    assert parsed.psc_chain_depth_capped is True
+    assert parsed.unavailable_services == ["gleif", "fca"]
+
+    del assessment_payload["psc_chain_depth_capped"]
+    del assessment_payload["unavailable_services"]
+    parsed = Assessment.from_dict(assessment_payload)
+    assert parsed.psc_chain_depth_capped is False
+    assert parsed.unavailable_services == []
+
+
+@respx.mock
 def test_unknown_severity_does_not_crash_parsing(client: KYCCentral, assessment_payload) -> None:
     # A future API release may add a severity this client version predates.
     assessment_payload["flags"][0]["severity"] = "catastrophic"
@@ -122,6 +154,69 @@ def test_assess_by_name_sends_q(client: KYCCentral, assessment_payload) -> None:
     assert params["q"] == "tesco plc"
     assert params["rule_set_id"] == "quick"
     assert "company_number" not in params
+
+
+_NEW_ASSESS_KWARGS: dict[str, Any] = {
+    "dismissed_media_urls": ["https://a.example", "https://b.example"],
+    "dismissed_leak_ids": ["n1", "n2"],
+    "confirmed_officer_company_links": ["ACME LTD||00000001", "FOO LTD||00000002"],
+    "confirmed_fca_frn": "123456",
+    "fca_not_applicable": True,
+}
+
+
+def _check_new_assess_params(params: Any) -> None:
+    assert params.get_list("dismissed_media_url") == ["https://a.example", "https://b.example"]
+    assert params.get_list("dismissed_leak_id") == ["n1", "n2"]
+    assert params.get_list("confirmed_officer_company_link") == [
+        "ACME LTD||00000001",
+        "FOO LTD||00000002",
+    ]
+    assert params.get_list("confirmed_fca_frn") == ["123456"]
+    assert params.get_list("fca_not_applicable") == ["true"]
+
+
+@respx.mock
+def test_assess_sends_new_options(client: KYCCentral, assessment_payload) -> None:
+    route = respx.get(url__startswith=f"{BASE_URL}/v1/kyc/assess").mock(
+        return_value=httpx.Response(200, json=assessment_payload)
+    )
+    client.kyc.assess("00445790", **_NEW_ASSESS_KWARGS)
+    _check_new_assess_params(route.calls[0].request.url.params)
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"fca_not_applicable": False}])
+@respx.mock
+def test_assess_omits_new_options_when_unset(
+    client: KYCCentral, assessment_payload, kwargs: dict[str, Any]
+) -> None:
+    route = respx.get(url__startswith=f"{BASE_URL}/v1/kyc/assess").mock(
+        return_value=httpx.Response(200, json=assessment_payload)
+    )
+    client.kyc.assess("00445790", **kwargs)
+    params = route.calls[0].request.url.params
+    for key in (
+        "dismissed_media_url",
+        "dismissed_leak_id",
+        "confirmed_officer_company_link",
+        "confirmed_fca_frn",
+        "fca_not_applicable",
+    ):
+        assert key not in params
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_async_assess_sends_new_options(
+    async_client: AsyncKYCCentral, assessment_payload
+) -> None:
+    route = respx.get(url__startswith=f"{BASE_URL}/v1/kyc/assess").mock(
+        return_value=httpx.Response(200, json=assessment_payload)
+    )
+    await async_client.kyc.assess("00445790", **_NEW_ASSESS_KWARGS)
+    _check_new_assess_params(route.calls[0].request.url.params)
+    await async_client.kyc.assess("00445790")
+    assert "fca_not_applicable" not in route.calls[1].request.url.params
 
 
 # ── Queued assessments ───────────────────────────────────────────────────────

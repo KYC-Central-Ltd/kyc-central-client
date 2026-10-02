@@ -90,12 +90,28 @@ defmodule KYCCentral.KYC do
     * `:rule_code` — run a single rule instead of a whole set, e.g.
       `"ACCOUNTS_OVERDUE"`. Overrides `:rule_set_id`.
     * `:confirmed_media_urls` — adverse-media article URLs an analyst has
-      already confirmed as genuine. Unconfirmed matches only ever raise a
-      low-severity `ADVERSE_MEDIA_UNCONFIRMED` flag; listing a URL here promotes
-      that article to its full severity.
-    * `:confirmed_leak_ids` — ICIJ Offshore Leaks match ids, promoted the same way.
+      reviewed and confirmed as genuine. Recorded and passed to the AI analysis.
+      Does not change severity: adverse-media flags always stay at low-severity
+      `ADVERSE_MEDIA_UNCONFIRMED`.
+    * `:dismissed_media_urls` — adverse-media article URLs an analyst has
+      confirmed as not relevant. Drops `ADVERSE_MEDIA_UNCONFIRMED` for those
+      articles.
+    * `:confirmed_leak_ids` — ICIJ Offshore Leaks match ids an analyst has
+      confirmed as genuine. Raises `OFFSHORE_LEAKS_HIT` for those matches in
+      place of the low-severity `OFFSHORE_LEAKS_UNCONFIRMED`.
+    * `:dismissed_leak_ids` — ICIJ Offshore Leaks match ids an analyst has
+      confirmed as not relevant. Drops the Offshore Leaks flag for those matches.
     * `:confirmed_psc_shareholder_links` — analyst-confirmed identity links, each
       formatted `"<psc name>||<shareholder name>"`.
+    * `:confirmed_officer_company_links` — analyst-confirmed links between a
+      corporate officer and the registered company it is, each formatted
+      `"<officer name>||<company number>"`.
+      `KYCCentral.Companies.officer_company_matches/2` suggests candidates.
+    * `:confirmed_fca_frn` — an analyst-confirmed FCA firm reference number (FRN)
+      for this company. At most 10 characters.
+    * `:fca_not_applicable` — the analyst has marked this company as not
+      FCA-regulated. Wins over `:confirmed_fca_frn` when both are set. Sent only
+      when `true`.
     * `:wait` — poll a queued assessment to completion. Defaults to `true`.
     * `:poll_interval` — milliseconds between polls; a positive integer. Defaults to
       `#{@default_poll_interval}`.
@@ -172,8 +188,13 @@ defmodule KYCCentral.KYC do
       rule_set_id: opts[:rule_set_id],
       rule_code: opts[:rule_code],
       confirmed_media_url: opts[:confirmed_media_urls],
+      dismissed_media_url: opts[:dismissed_media_urls],
       confirmed_leak_id: opts[:confirmed_leak_ids],
-      confirmed_psc_shareholder_link: opts[:confirmed_psc_shareholder_links]
+      dismissed_leak_id: opts[:dismissed_leak_ids],
+      confirmed_psc_shareholder_link: opts[:confirmed_psc_shareholder_links],
+      confirmed_officer_company_link: opts[:confirmed_officer_company_links],
+      confirmed_fca_frn: opts[:confirmed_fca_frn],
+      fca_not_applicable: if(opts[:fca_not_applicable] == true, do: true)
     ]
 
     Transport.request(client, :get, "/kyc/assess", params: params)

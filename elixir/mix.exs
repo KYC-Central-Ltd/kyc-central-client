@@ -85,7 +85,6 @@ defmodule KYCCentral.MixProject do
           KYCCentral.Sanctions,
           KYCCentral.News,
           KYCCentral.OffshoreLeaks,
-          KYCCentral.FCA,
           KYCCentral.GLEIF,
           KYCCentral.IndividualInsolvency
         ],
@@ -95,7 +94,8 @@ defmodule KYCCentral.MixProject do
           KYCCentral.Jurisdictions,
           KYCCentral.OffshoreJurisdictions
         ],
-        AI: [KYCCentral.Analysis, KYCCentral.Docs]
+        AI: [KYCCentral.Analysis, KYCCentral.Docs],
+        Reports: [KYCCentral.Reports]
       ]
     ]
   end

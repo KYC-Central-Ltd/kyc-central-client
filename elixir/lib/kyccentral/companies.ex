@@ -2,7 +2,7 @@ defmodule KYCCentral.Companies do
   @moduledoc """
   Companies House company, officer, PSC, charge and filing data.
 
-  Available on every plan, except the three endpoints marked
+  Available on every plan, except the four endpoints marked
   **Professional plan**.
 
   Company numbers are Companies House registration numbers — up to eight
@@ -40,11 +40,11 @@ defmodule KYCCentral.Companies do
 
   ## Options
 
-  All optional. Dates are `YYYY-MM-DD`. List options are repeatable, so
-  `company_status: ["active", "liquidation"]` matches either.
+  All optional. Dates are `YYYY-MM-DD`. Each of `:company_status`,
+  `:company_type` and `:sic_codes` takes a single value, matched exactly.
 
     * `:company_name_includes`, `:company_name_excludes`
-    * `:company_status`, `:company_type`, `:sic_codes` — lists
+    * `:company_status`, `:company_type`, `:sic_codes` — a single string each
     * `:location`
     * `:incorporated_from`, `:incorporated_to`
     * `:dissolved_from`, `:dissolved_to`
@@ -88,6 +88,18 @@ defmodule KYCCentral.Companies do
   @spec officers(KYCCentral.t(), String.t()) :: result()
   def officers(client, company_number), do: company_path(client, company_number, "/officers")
 
+  @doc """
+  Suggest which registered company each unidentified corporate officer might be.
+
+  Returns `%{"matches" => %{officer_name => [candidate, ...]}}`. Suggestions only,
+  for a human to review; confirm one by passing `:confirmed_officer_company_links`
+  to `KYCCentral.KYC.assess/3`.
+  """
+  @spec officer_company_matches(KYCCentral.t(), String.t()) :: result()
+  def officer_company_matches(client, company_number) do
+    company_path(client, company_number, "/officer-company-matches")
+  end
+
   @doc "Registered beneficial owners (PSCs)."
   @spec pscs(KYCCentral.t(), String.t()) :: result()
   def pscs(client, company_number) do
@@ -123,6 +135,16 @@ defmodule KYCCentral.Companies do
          {:ok, id} <- segment(charge_id, "charge_id") do
       Transport.request(client, :get, "/companies/#{number}/charges/#{id}")
     end
+  end
+
+  @doc """
+  Charge registration records already extracted for this company, as
+  `%{"items" => [...]}`: the full charge-holder list and level-of-influence
+  signals for each. Empty until `extract_charge_registration/3` has been run.
+  """
+  @spec charge_registrations(KYCCentral.t(), String.t()) :: result()
+  def charge_registrations(client, company_number) do
+    company_path(client, company_number, "/charges/registrations")
   end
 
   @doc "Insolvency cases. Returns an empty payload when there are none."
@@ -195,6 +217,31 @@ defmodule KYCCentral.Companies do
         client,
         :get,
         "/companies/#{number}/filing-history/#{transaction}/extract"
+      )
+    end
+  end
+
+  @doc """
+  Extract the full charge-holder list and level-of-influence signals for one
+  charge, without spending AI credits.
+
+  **Requires an active Professional subscription.**
+
+  `charge_key` is the charge code (e.g. `"094462310004"`), or
+  `"{company_number}-{charge_number}"` for pre-2013 charges. Paper and pre-2013
+  forms have no text layer; the response is then
+  `%{"needs_ai" => true, "charge_key" => ..., "filing_transaction_id" => ...}`
+  and `KYCCentral.Analysis.charge_registration/4` can read the form instead.
+
+  A blank `charge_key` returns an `:invalid_argument` error without making a
+  request. The key is sent trimmed.
+  """
+  @spec extract_charge_registration(KYCCentral.t(), String.t(), String.t()) :: result()
+  def extract_charge_registration(client, company_number, charge_key) do
+    with {:ok, number} <- segment(company_number, "company_number"),
+         {:ok, key} <- Transport.charge_key(charge_key) do
+      Transport.request(client, :post, "/companies/#{number}/charges/registration",
+        body: %{"charge_key" => key}
       )
     end
   end

@@ -5,8 +5,8 @@ import type { JsonObject } from '../types.js';
 import type { CallOptions } from './companies.js';
 
 export interface CharityOptions extends CallOptions {
-  /** Subsidiary suffix, for linked charities registered under one number. */
-  suffix?: string;
+  /** Linked-charity suffix, an integer. Defaults to 0, the main charity. */
+  suffix?: number;
 }
 
 /** Charity Commission for England and Wales lookups. */

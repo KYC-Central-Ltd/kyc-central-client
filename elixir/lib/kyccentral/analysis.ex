@@ -115,6 +115,40 @@ defmodule KYCCentral.Analysis do
     end
   end
 
+  @doc """
+  Read a charge's "Registration of a charge" form with a vision-capable LLM, for
+  forms with no text layer (paper and pre-2013 filings) — the case
+  `KYCCentral.Companies.extract_charge_registration/3` answers with `needs_ai`.
+
+  Returns the same merged record, with source `"ai_vision"`; an unreadable form
+  returns `%{"available" => false, "reason" => ...}`. Spends AI credits on first
+  use; a repeat call for the same charge is served from the stored record.
+
+  A blank `charge_key` returns an `:invalid_argument` error without making a
+  request. The key is sent trimmed.
+
+  ## Options
+
+    * `:provider`
+    * `:receive_timeout` — timeout in milliseconds for this call. Defaults to 120
+      seconds, or the client's `:receive_timeout` if that is longer. Must be a
+      positive integer.
+  """
+  @spec charge_registration(KYCCentral.t(), String.t(), String.t(), keyword()) :: result()
+  def charge_registration(client, company_number, charge_key, opts \\ []) do
+    with {:ok, key} <- Transport.charge_key(charge_key),
+         {:ok, timeout} <- Transport.ai_receive_timeout(client, opts) do
+      body =
+        %{"company_number" => company_number, "charge_key" => key}
+        |> put_optional("provider", opts[:provider])
+
+      Transport.request(client, :post, "/analysis/charge-registration",
+        body: body,
+        receive_timeout: timeout
+      )
+    end
+  end
+
   defp validate_mode(mode) when mode in @filing_extract_modes, do: :ok
 
   defp validate_mode(mode) do

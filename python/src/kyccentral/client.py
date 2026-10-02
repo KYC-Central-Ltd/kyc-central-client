@@ -82,8 +82,6 @@ class KYCCentral:
         self.news = _r.News(self._transport)
         #: ICIJ Offshore Leaks screening.
         self.offshore_leaks = _r.OffshoreLeaks(self._transport)
-        #: FCA Register lookups.
-        self.fca = _r.Fca(self._transport)
         #: GLEIF LEI and parent-chain lookups.
         self.gleif = _r.Gleif(self._transport)
         #: Individual Insolvency Register screening.
@@ -100,6 +98,8 @@ class KYCCentral:
         self.analysis = _r.Analysis(self._transport)
         #: Product documentation assistant.
         self.docs = _r.Docs(self._transport)
+        #: Full report data as JSON. Requires an API key.
+        self.reports = _r.Reports(self._transport)
 
     @property
     def base_url(self) -> str:
@@ -184,7 +184,6 @@ class AsyncKYCCentral:
         self.sanctions = _r.AsyncSanctions(self._transport)
         self.news = _r.AsyncNews(self._transport)
         self.offshore_leaks = _r.AsyncOffshoreLeaks(self._transport)
-        self.fca = _r.AsyncFca(self._transport)
         self.gleif = _r.AsyncGleif(self._transport)
         self.individual_insolvency = _r.AsyncIndividualInsolvency(self._transport)
         self.charity = _r.AsyncCharity(self._transport)
@@ -193,6 +192,7 @@ class AsyncKYCCentral:
         self.offshore_jurisdictions = _r.AsyncOffshoreJurisdictions(self._transport)
         self.analysis = _r.AsyncAnalysis(self._transport)
         self.docs = _r.AsyncDocs(self._transport)
+        self.reports = _r.AsyncReports(self._transport)
 
     @property
     def base_url(self) -> str:

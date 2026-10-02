@@ -39,6 +39,8 @@ def main(company_number: str) -> int:
         print("WARNING — this assessment is incomplete, so an absent flag is not a clear result.")
         if assessment.timed_out_services:
             print(f"  Timed out: {', '.join(assessment.timed_out_services)}")
+        if assessment.unavailable_services:
+            print(f"  Unavailable: {', '.join(assessment.unavailable_services)}")
         if assessment.failed_rules:
             print(f"  Rules that errored: {', '.join(assessment.failed_rules)}")
         if assessment.pending_extractions:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .._transport import AsyncResource, SyncResource, _seg
+from .._transport import AsyncResource, SyncResource, _charge_key, _seg
 
 __all__ = ["AsyncCompanies", "Companies"]
 
@@ -15,13 +15,17 @@ def _search_params(items_per_page: int | None, start_index: int | None) -> JSON:
     return {"items_per_page": items_per_page, "start_index": start_index}
 
 
+def _charge_registration_body(charge_key: str) -> JSON:
+    return {"charge_key": _charge_key(charge_key)}
+
+
 def _advanced_search_params(
     company_name_includes: str | None,
     company_name_excludes: str | None,
-    company_status: list[str] | None,
-    company_type: list[str] | None,
+    company_status: str | None,
+    company_type: str | None,
     location: str | None,
-    sic_codes: list[str] | None,
+    sic_codes: str | None,
     incorporated_from: str | None,
     incorporated_to: str | None,
     dissolved_from: str | None,
@@ -91,10 +95,10 @@ class Companies(SyncResource):
         *,
         company_name_includes: str | None = None,
         company_name_excludes: str | None = None,
-        company_status: list[str] | None = None,
-        company_type: list[str] | None = None,
+        company_status: str | None = None,
+        company_type: str | None = None,
         location: str | None = None,
-        sic_codes: list[str] | None = None,
+        sic_codes: str | None = None,
         incorporated_from: str | None = None,
         incorporated_to: str | None = None,
         dissolved_from: str | None = None,
@@ -105,8 +109,8 @@ class Companies(SyncResource):
     ) -> JSON:
         """Structured company search with status, type, SIC and date filters.
 
-        Dates are ``YYYY-MM-DD``. List filters are repeatable: passing
-        ``company_status=["active", "liquidation"]`` matches either.
+        Dates are ``YYYY-MM-DD``. Each of ``company_status``, ``company_type``
+        and ``sic_codes`` takes a single value, matched exactly.
         """
         return self._get(
             "/companies/advanced-search",
@@ -143,6 +147,17 @@ class Companies(SyncResource):
         """Appointed officers, including resigned ones."""
         return self._get(f"/companies/{_seg(company_number, 'company_number')}/officers")
 
+    def officer_company_matches(self, company_number: str) -> JSON:
+        """Suggest which registered company each unidentified corporate officer might be.
+
+        Returns ``{"matches": {officer_name: [candidate, ...]}}``. Suggestions
+        only, for a human to review; confirm one by passing
+        ``confirmed_officer_company_links`` to ``kyc.assess``.
+        """
+        return self._get(
+            f"/companies/{_seg(company_number, 'company_number')}/officer-company-matches"
+        )
+
     def persons_with_significant_control(self, company_number: str) -> JSON:
         """Registered beneficial owners (PSCs)."""
         return self._get(
@@ -176,6 +191,17 @@ class Companies(SyncResource):
         return self._get(
             f"/companies/{_seg(company_number, 'company_number')}"
             f"/charges/{_seg(charge_id, 'charge_id')}"
+        )
+
+    def charge_registrations(self, company_number: str) -> JSON:
+        """Charge registration records already extracted for this company.
+
+        Returns ``{"items": [...]}``: the full charge-holder list and
+        level-of-influence signals for each. Empty until
+        ``extract_charge_registration`` has been run.
+        """
+        return self._get(
+            f"/companies/{_seg(company_number, 'company_number')}/charges/registrations"
         )
 
     def insolvency(self, company_number: str) -> JSON:
@@ -250,6 +276,25 @@ class Companies(SyncResource):
             f"/companies/{_seg(company_number, 'company_number')}/statement-of-capital"
         )
 
+    def extract_charge_registration(self, company_number: str, charge_key: str) -> JSON:
+        """Extract the full charge-holder list and level-of-influence signals for one charge.
+
+        **Requires an active Professional subscription.** Spends no AI credits.
+
+        ``charge_key`` is the charge code (e.g. ``"094462310004"``), or
+        ``"{company_number}-{charge_number}"`` for pre-2013 charges. Paper and
+        pre-2013 forms have no text layer; the response is then
+        ``{"needs_ai": true, "charge_key", "filing_transaction_id"}`` and
+        ``analysis.charge_registration`` can read the form instead.
+
+        Raises:
+            ValueError: ``charge_key`` is blank.
+        """
+        return self._post(
+            f"/companies/{_seg(company_number, 'company_number')}/charges/registration",
+            json=_charge_registration_body(charge_key),
+        )
+
 
 class AsyncCompanies(AsyncResource):
     """Awaitable mirror of :class:`Companies`. See there for full documentation."""
@@ -284,10 +329,10 @@ class AsyncCompanies(AsyncResource):
         *,
         company_name_includes: str | None = None,
         company_name_excludes: str | None = None,
-        company_status: list[str] | None = None,
-        company_type: list[str] | None = None,
+        company_status: str | None = None,
+        company_type: str | None = None,
         location: str | None = None,
-        sic_codes: list[str] | None = None,
+        sic_codes: str | None = None,
         incorporated_from: str | None = None,
         incorporated_to: str | None = None,
         dissolved_from: str | None = None,
@@ -328,6 +373,12 @@ class AsyncCompanies(AsyncResource):
         """Appointed officers, including resigned ones."""
         return await self._get(f"/companies/{_seg(company_number, 'company_number')}/officers")
 
+    async def officer_company_matches(self, company_number: str) -> JSON:
+        """Suggest which registered company each unidentified corporate officer might be."""
+        return await self._get(
+            f"/companies/{_seg(company_number, 'company_number')}/officer-company-matches"
+        )
+
     async def persons_with_significant_control(self, company_number: str) -> JSON:
         """Registered beneficial owners (PSCs)."""
         return await self._get(
@@ -365,6 +416,12 @@ class AsyncCompanies(AsyncResource):
         return await self._get(
             f"/companies/{_seg(company_number, 'company_number')}"
             f"/charges/{_seg(charge_id, 'charge_id')}"
+        )
+
+    async def charge_registrations(self, company_number: str) -> JSON:
+        """Charge registration records already extracted for this company."""
+        return await self._get(
+            f"/companies/{_seg(company_number, 'company_number')}/charges/registrations"
         )
 
     async def insolvency(self, company_number: str) -> JSON:
@@ -426,4 +483,14 @@ class AsyncCompanies(AsyncResource):
         """Share capital and shareholders. **Professional plan.**"""
         return await self._get(
             f"/companies/{_seg(company_number, 'company_number')}/statement-of-capital"
+        )
+
+    async def extract_charge_registration(self, company_number: str, charge_key: str) -> JSON:
+        """Extract the full charge-holder list and level-of-influence signals for one charge.
+
+        **Professional plan.**
+        """
+        return await self._post(
+            f"/companies/{_seg(company_number, 'company_number')}/charges/registration",
+            json=_charge_registration_body(charge_key),
         )

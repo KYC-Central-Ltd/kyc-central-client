@@ -5,8 +5,8 @@ import { Analysis, Docs } from './resources/analysis.js';
 import { Companies, type CallOptions } from './resources/companies.js';
 import { Jobs, Kyc, Rules, RuleSets } from './resources/kyc.js';
 import { Charity, HmrcVat, Jurisdictions, OffshoreJurisdictions } from './resources/registries.js';
+import { Reports } from './resources/reports.js';
 import {
-  Fca,
   Gleif,
   IndividualInsolvency,
   News,
@@ -54,8 +54,6 @@ export class KYCCentral {
   readonly news: News;
   /** ICIJ Offshore Leaks screening. */
   readonly offshoreLeaks: OffshoreLeaks;
-  /** FCA Register lookups. */
-  readonly fca: Fca;
   /** GLEIF LEI and parent-chain lookups. */
   readonly gleif: Gleif;
   /** Individual Insolvency Register screening. */
@@ -72,6 +70,8 @@ export class KYCCentral {
   readonly analysis: Analysis;
   /** Product documentation assistant. */
   readonly docs: Docs;
+  /** Full report data as JSON. Requires an API key. */
+  readonly reports: Reports;
 
   constructor(options: ClientOptions = {}) {
     this.transport = new Transport(options);
@@ -84,7 +84,6 @@ export class KYCCentral {
     this.sanctions = new Sanctions(this.transport);
     this.news = new News(this.transport);
     this.offshoreLeaks = new OffshoreLeaks(this.transport);
-    this.fca = new Fca(this.transport);
     this.gleif = new Gleif(this.transport);
     this.individualInsolvency = new IndividualInsolvency(this.transport);
     this.charity = new Charity(this.transport);
@@ -93,6 +92,7 @@ export class KYCCentral {
     this.offshoreJurisdictions = new OffshoreJurisdictions(this.transport);
     this.analysis = new Analysis(this.transport);
     this.docs = new Docs(this.transport);
+    this.reports = new Reports(this.transport);
   }
 
   /** The API root this client talks to. */

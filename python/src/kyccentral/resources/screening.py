@@ -1,4 +1,4 @@
-"""Screening sources: sanctions, adverse media, offshore leaks, FCA, GLEIF, insolvency."""
+"""Screening sources: sanctions, adverse media, offshore leaks, GLEIF, insolvency."""
 
 from __future__ import annotations
 
@@ -8,13 +8,11 @@ from typing import Any
 from .._transport import AsyncResource, SyncResource, _names_body, _seg
 
 __all__ = [
-    "AsyncFca",
     "AsyncGleif",
     "AsyncIndividualInsolvency",
     "AsyncNews",
     "AsyncOffshoreLeaks",
     "AsyncSanctions",
-    "Fca",
     "Gleif",
     "IndividualInsolvency",
     "News",
@@ -82,17 +80,17 @@ class Sanctions(SyncResource):
         self,
         name: str,
         *,
-        threshold: float | None = None,
+        threshold: int | None = None,
         vector_threshold: float | None = None,
     ) -> JSON:
         """Screen a single name.
 
         Args:
             name: Person or organisation name to screen.
-            threshold: Minimum overall match score to return, between 0 and 1.
-                Raising it returns fewer, stronger candidates.
-            vector_threshold: Minimum semantic-similarity score for the
-                nearest-neighbour stage that shortlists candidates.
+            threshold: Fuzzy-match threshold, an integer from 1 to 100. Overrides
+                the server default; lower values return more, weaker candidates.
+            vector_threshold: Vector-similarity threshold, from 0.0 to 1.0.
+                Overrides the server default.
         """
         return self._get(
             "/sanctions/screen",
@@ -148,7 +146,7 @@ class AsyncSanctions(AsyncResource):
         self,
         name: str,
         *,
-        threshold: float | None = None,
+        threshold: int | None = None,
         vector_threshold: float | None = None,
     ) -> JSON:
         """Screen a single name."""
@@ -319,79 +317,6 @@ class AsyncOffshoreLeaks(AsyncResource):
             f"/offshore-leaks/node/{_seg(node_id, 'node_id')}",
             params={"name": name, "node_type": node_type},
         )
-
-
-class Fca(SyncResource):
-    """Financial Conduct Authority register lookups.
-
-    Firms are identified by their Firm Reference Number (FRN).
-    """
-
-    def status(self) -> JSON:
-        """Whether FCA Register access is configured."""
-        return self._get("/fca/status")
-
-    def search(self, q: str) -> JSON:
-        """Search the register by firm or individual name."""
-        return self._get("/fca/search", params={"q": q})
-
-    def firm(self, frn: str) -> JSON:
-        """A firm's register entry: permissions, status, addresses."""
-        return self._get(f"/fca/firm/{_seg(frn, 'frn')}")
-
-    def firm_names(self, frn: str) -> JSON:
-        """Trading names a firm operates under."""
-        return self._get(f"/fca/firm/{_seg(frn, 'frn')}/names")
-
-    def firm_individuals(self, frn: str) -> JSON:
-        """Approved individuals attached to a firm."""
-        return self._get(f"/fca/firm/{_seg(frn, 'frn')}/individuals")
-
-    def screen_individuals(self, company_number: str) -> JSON:
-        """Check a company's officers and PSCs against the FCA register."""
-        return self._get(
-            "/fca/screen-individuals",
-            params={"company_number": _seg(company_number, "company_number")},
-        )
-
-    def check_individual(self, name: str) -> JSON:
-        """Look up one individual on the FCA register by name."""
-        return self._get("/fca/check-individual", params={"name": name})
-
-
-class AsyncFca(AsyncResource):
-    """Awaitable mirror of :class:`Fca`."""
-
-    async def status(self) -> JSON:
-        """Whether FCA Register access is configured."""
-        return await self._get("/fca/status")
-
-    async def search(self, q: str) -> JSON:
-        """Search the register by firm or individual name."""
-        return await self._get("/fca/search", params={"q": q})
-
-    async def firm(self, frn: str) -> JSON:
-        """A firm's register entry."""
-        return await self._get(f"/fca/firm/{_seg(frn, 'frn')}")
-
-    async def firm_names(self, frn: str) -> JSON:
-        """Trading names a firm operates under."""
-        return await self._get(f"/fca/firm/{_seg(frn, 'frn')}/names")
-
-    async def firm_individuals(self, frn: str) -> JSON:
-        """Approved individuals attached to a firm."""
-        return await self._get(f"/fca/firm/{_seg(frn, 'frn')}/individuals")
-
-    async def screen_individuals(self, company_number: str) -> JSON:
-        """Check a company's officers and PSCs against the FCA register."""
-        return await self._get(
-            "/fca/screen-individuals",
-            params={"company_number": _seg(company_number, "company_number")},
-        )
-
-    async def check_individual(self, name: str) -> JSON:
-        """Look up one individual on the FCA register by name."""
-        return await self._get("/fca/check-individual", params={"name": name})
 
 
 class Gleif(SyncResource):

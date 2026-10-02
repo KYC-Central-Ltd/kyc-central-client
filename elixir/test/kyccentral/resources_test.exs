@@ -12,6 +12,8 @@ defmodule KYCCentral.ResourcesTest do
     {KYCCentral.Companies, :get, ["00445790"], "/v1/companies/00445790"},
     {KYCCentral.Companies, :dossier, ["00445790"], "/v1/companies/00445790/dossier"},
     {KYCCentral.Companies, :officers, ["00445790"], "/v1/companies/00445790/officers"},
+    {KYCCentral.Companies, :officer_company_matches, ["00445790"],
+     "/v1/companies/00445790/officer-company-matches"},
     {KYCCentral.Companies, :pscs, ["00445790"],
      "/v1/companies/00445790/persons-with-significant-control"},
     {KYCCentral.Companies, :psc_statements, ["00445790"],
@@ -22,6 +24,10 @@ defmodule KYCCentral.ResourcesTest do
      "/v1/companies/00445790/psc-chain-tree"},
     {KYCCentral.Companies, :charges, ["00445790"], "/v1/companies/00445790/charges"},
     {KYCCentral.Companies, :charge, ["00445790", "chg1"], "/v1/companies/00445790/charges/chg1"},
+    {KYCCentral.Companies, :charge_registrations, ["00445790"],
+     "/v1/companies/00445790/charges/registrations"},
+    {KYCCentral.Companies, :extract_charge_registration, ["00445790", "094462310004"],
+     "/v1/companies/00445790/charges/registration"},
     {KYCCentral.Companies, :insolvency, ["00445790"], "/v1/companies/00445790/insolvency"},
     {KYCCentral.Companies, :disqualifications, ["00445790"],
      "/v1/companies/00445790/disqualifications"},
@@ -56,13 +62,6 @@ defmodule KYCCentral.ResourcesTest do
     {KYCCentral.OffshoreLeaks, :node, ["n1"], "/v1/offshore-leaks/node/n1"},
     {KYCCentral.OffshoreLeaks, :screen_company, ["00445790"],
      "/v1/offshore-leaks/screen-company"},
-    {KYCCentral.FCA, :status, [], "/v1/fca/status"},
-    {KYCCentral.FCA, :search, ["acme"], "/v1/fca/search"},
-    {KYCCentral.FCA, :firm, ["123456"], "/v1/fca/firm/123456"},
-    {KYCCentral.FCA, :firm_names, ["123456"], "/v1/fca/firm/123456/names"},
-    {KYCCentral.FCA, :firm_individuals, ["123456"], "/v1/fca/firm/123456/individuals"},
-    {KYCCentral.FCA, :screen_individuals, ["00445790"], "/v1/fca/screen-individuals"},
-    {KYCCentral.FCA, :check_individual, ["Alice"], "/v1/fca/check-individual"},
     {KYCCentral.GLEIF, :company, ["00445790"], "/v1/gleif/company"},
     {KYCCentral.IndividualInsolvency, :screen_company, ["00445790"],
      "/v1/individual-insolvency/screen-company"},
@@ -73,6 +72,9 @@ defmodule KYCCentral.ResourcesTest do
     {KYCCentral.HMRCVat, :status, [], "/v1/hmrc-vat/status"},
     {KYCCentral.HMRCVat, :check, ["GB123456789"], "/v1/hmrc-vat/check"},
     {KYCCentral.Analysis, :status, [], "/v1/analysis/status"},
+    {KYCCentral.Analysis, :charge_registration, ["00445790", "094462310004"],
+     "/v1/analysis/charge-registration"},
+    {KYCCentral.Reports, :data, ["00445790"], "/v1/billing/report-data"},
     {KYCCentral, :data_source_health, [], "/health/data-sources"}
   ]
 
@@ -218,7 +220,12 @@ defmodule KYCCentral.ResourcesTest do
       assert {:ok, _} = KYCCentral.Analysis.filing_extract(client, "00445790", "tx1")
       assert {:ok, _} = KYCCentral.Docs.ask(client, "hi")
 
-      for index <- 0..3, do: assert(Stub.call(agent, index).receive_timeout == 120_000)
+      assert {:ok, _} =
+               KYCCentral.Analysis.charge_registration(client, "00445790", "094462310004")
+
+      assert {:ok, _} = KYCCentral.Reports.data(client, "00445790")
+
+      for index <- 0..5, do: assert(Stub.call(agent, index).receive_timeout == 120_000)
     end
 
     test "other endpoints keep the client timeout" do
@@ -233,8 +240,15 @@ defmodule KYCCentral.ResourcesTest do
 
       assert {:ok, _} = KYCCentral.Analysis.company(client, "00445790", receive_timeout: 5_000)
       assert {:ok, _} = KYCCentral.Docs.ask(client, "hi", receive_timeout: 5_000)
-      assert Stub.call(agent, 0).receive_timeout == 5_000
-      assert Stub.call(agent, 1).receive_timeout == 5_000
+
+      assert {:ok, _} =
+               KYCCentral.Analysis.charge_registration(client, "00445790", "k1",
+                 receive_timeout: 5_000
+               )
+
+      assert {:ok, _} = KYCCentral.Reports.data(client, "00445790", receive_timeout: 5_000)
+
+      for index <- 0..3, do: assert(Stub.call(agent, index).receive_timeout == 5_000)
     end
 
     test "a client with a longer timeout keeps it for AI endpoints" do
@@ -263,22 +277,140 @@ defmodule KYCCentral.ResourcesTest do
 
         assert {:error, %Error{kind: :invalid_argument}} =
                  KYCCentral.Docs.ask(client, "hi", receive_timeout: bad)
+
+        assert {:error, %Error{kind: :invalid_argument}} =
+                 KYCCentral.Analysis.charge_registration(client, "00445790", "k1",
+                   receive_timeout: bad
+                 )
+
+        assert {:error, %Error{kind: :invalid_argument}} =
+                 KYCCentral.Reports.data(client, "00445790", receive_timeout: bad)
       end
 
       assert Stub.call_count(agent) == 0
     end
   end
 
-  test "advanced search repeats list filters" do
+  test "advanced search sends a string filter once" do
     {client, agent} = Stub.client([Stub.json(%{})])
 
     assert {:ok, _} =
              KYCCentral.Companies.advanced_search(client,
                company_name_includes: "tesco",
-               company_status: ["active", "liquidation"]
+               company_status: "active",
+               sic_codes: "62012"
              )
 
-    assert Stub.query_values(agent, "company_status") == ["active", "liquidation"]
+    assert Stub.query_values(agent, "company_status") == ["active"]
+    assert Stub.query_values(agent, "sic_codes") == ["62012"]
     assert Stub.query_value(agent, "company_name_includes") == "tesco"
+  end
+
+  describe "charge registrations" do
+    test "extract sends the trimmed charge key as a POST body" do
+      {client, agent} = Stub.client([Stub.json(%{})])
+
+      assert {:ok, _} =
+               KYCCentral.Companies.extract_charge_registration(
+                 client,
+                 "00445790",
+                 "  094462310004 "
+               )
+
+      assert Stub.call(agent).method == :post
+      assert Stub.body(agent) == %{"charge_key" => "094462310004"}
+    end
+
+    test "the AI read sends the three-key body, omitting provider when not given" do
+      {client, agent} = Stub.client([Stub.json(%{})])
+
+      assert {:ok, _} =
+               KYCCentral.Analysis.charge_registration(client, "00445790", " 094462310004 ")
+
+      assert {:ok, _} =
+               KYCCentral.Analysis.charge_registration(client, "00445790", "094462310004",
+                 provider: "claude"
+               )
+
+      assert Stub.body(agent, 0) == %{
+               "company_number" => "00445790",
+               "charge_key" => "094462310004"
+             }
+
+      assert Stub.body(agent, 1) == %{
+               "company_number" => "00445790",
+               "charge_key" => "094462310004",
+               "provider" => "claude"
+             }
+    end
+
+    test "a blank charge key is rejected before any request" do
+      {client, agent} = Stub.client([Stub.json(%{})])
+
+      for blank <- ["", "   ", nil, 123] do
+        assert {:error, %Error{kind: :invalid_argument, message: message}} =
+                 KYCCentral.Companies.extract_charge_registration(client, "00445790", blank)
+
+        assert message == "charge_key must be a non-empty string"
+
+        assert {:error, %Error{kind: :invalid_argument, message: ^message}} =
+                 KYCCentral.Analysis.charge_registration(client, "00445790", blank)
+      end
+
+      assert Stub.call_count(agent) == 0
+    end
+  end
+
+  describe "reports" do
+    test "sends only the company number when no options are given" do
+      {client, agent} = Stub.client([Stub.json(%{})])
+
+      assert {:ok, _} = KYCCentral.Reports.data(client, "00445790")
+      assert Stub.body(agent) == %{"company_number" => "00445790"}
+    end
+
+    test "joins lists with commas and passes strings through unchanged" do
+      {client, agent} = Stub.client([Stub.json(%{})])
+
+      assert {:ok, _} =
+               KYCCentral.Reports.data(client, "00445790",
+                 sections: ["assessment", "sanctions"],
+                 rule_set_ids: "default,quick",
+                 ai_provider: "claude",
+                 fca_frn: "123456",
+                 context: %{"accepted_gaps" => ["sanctions"]}
+               )
+
+      assert Stub.body(agent) == %{
+               "company_number" => "00445790",
+               "sections" => "assessment,sanctions",
+               "rule_set_ids" => "default,quick",
+               "ai_provider" => "claude",
+               "fca_frn" => "123456",
+               "context" => %{"accepted_gaps" => ["sanctions"]}
+             }
+    end
+
+    test "an empty list is treated as not given" do
+      {client, agent} = Stub.client([Stub.json(%{})])
+
+      assert {:ok, _} =
+               KYCCentral.Reports.data(client, "00445790", sections: [], rule_set_ids: [])
+
+      assert Stub.body(agent) == %{"company_number" => "00445790"}
+    end
+
+    test "a 503 with Retry-After is not retried and carries retry_after" do
+      busy =
+        {503, Jason.encode!(%{"detail" => "check unavailable"}),
+         %{"content-type" => ["application/json"], "retry-after" => ["300"]}}
+
+      {client, agent} = Stub.client([busy, Stub.json(%{})], max_retries: 2)
+
+      assert {:error, %Error{kind: :service_unavailable, retry_after: 300.0}} =
+               KYCCentral.Reports.data(client, "00445790")
+
+      assert Stub.call_count(agent) == 1
+    end
   end
 end

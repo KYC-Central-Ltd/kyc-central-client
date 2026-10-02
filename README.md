@@ -67,7 +67,7 @@ the same way, so a team using more than one does not have to learn three sets of
 **Only the assessment is typed.** `/v1/kyc/assess` is the one response whose shape this
 API owns, so it gets a real type — `Assessment` dataclass, TypeScript interface, Elixir
 struct — with severity helpers and an `is_partial` / `isPartial` / `partial?` check.
-Endpoints that proxy an upstream registry (Companies House, the FCA Register, GLEIF)
+Endpoints that proxy an upstream registry (Companies House, GLEIF, the Charity Commission)
 return decoded JSON as-is, so new upstream fields reach callers without waiting on a
 client release. The untouched payload is always kept on `raw`. A severity or risk level a
 client doesn't recognise maps to `unknown`, which ranks above `critical`, so a value added
@@ -80,7 +80,8 @@ drive the polling themselves.
 
 **Identical retry policy.** `GET`s retry timeouts, connection failures and 408/429/5xx
 with exponential backoff plus jitter, honouring a `Retry-After` of up to 8 seconds; a
-longer one is returned to the caller as a rate-limit error rather than retried early.
+longer one is returned to the caller as an error carrying the wait, rather than retried
+early.
 `POST`s — the AI endpoints and batch screening — are retried only when the connection was
 never established, or on 429/503 with `Retry-After`, so a slow LLM call is never sent (and
 billed) twice. The AI endpoints wait 120 seconds by default, overridable per call. Client
@@ -99,13 +100,13 @@ which HTTP stacks forward on cross-origin redirects, so each client turns redire
 supplying your own HTTP client.
 
 **Tests are offline.** Every suite mocks or injects the transport, so contributors need
-neither network access nor an API key: 92 tests in Python, 101 in JavaScript, 113 in
+neither network access nor an API key: 152 tests in Python, 170 in JavaScript, 150 in
 Elixir.
 
 **Compliance framing is consistent.** Each README states plainly that sanctions and
-adverse-media matching is approximate, that unconfirmed matches stay low-severity until
-an analyst confirms them, that there is no PEP screening, and that a partial result is
-not a clean one.
+adverse-media matching is approximate, that adverse-media and Offshore Leaks matches
+start low-severity and only a confirmed Offshore Leaks match rises, that there is no PEP
+screening, and that a partial result is not a clean one.
 
 ## Working on a client
 

@@ -2,7 +2,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { KYCCentral } from '../src/index.js';
+import { KYCCentral, ServiceUnavailableError } from '../src/index.js';
 import { BASE_URL, jsonResponse, mockFetch } from './helpers.js';
 
 function client(): { client: KYCCentral; fetch: ReturnType<typeof mockFetch> } {
@@ -38,12 +38,33 @@ const CASES: Array<[string, (c: KYCCentral) => Promise<unknown>, string]> = [
     (c) => c.companies.pscChainTree('00445790'),
     '/v1/companies/00445790/psc-chain-tree',
   ],
+  [
+    'companies.officerCompanyMatches',
+    (c) => c.companies.officerCompanyMatches('00445790'),
+    '/v1/companies/00445790/officer-company-matches',
+  ],
   ['companies.charges', (c) => c.companies.charges('00445790'), '/v1/companies/00445790/charges'],
   [
     'companies.charge',
     (c) => c.companies.charge('00445790', 'chg1'),
     '/v1/companies/00445790/charges/chg1',
   ],
+  [
+    'companies.chargeRegistrations',
+    (c) => c.companies.chargeRegistrations('00445790'),
+    '/v1/companies/00445790/charges/registrations',
+  ],
+  [
+    'companies.extractChargeRegistration',
+    (c) => c.companies.extractChargeRegistration('00445790', 'k1'),
+    '/v1/companies/00445790/charges/registration',
+  ],
+  [
+    'analysis.chargeRegistration',
+    (c) => c.analysis.chargeRegistration('00445790', 'k1'),
+    '/v1/analysis/charge-registration',
+  ],
+  ['reports.data', (c) => c.reports.data('00445790'), '/v1/billing/report-data'],
   [
     'companies.insolvency',
     (c) => c.companies.insolvency('00445790'),
@@ -98,21 +119,6 @@ const CASES: Array<[string, (c: KYCCentral) => Promise<unknown>, string]> = [
     (c) => c.offshoreLeaks.screenCompany('00445790'),
     '/v1/offshore-leaks/screen-company',
   ],
-  ['fca.status', (c) => c.fca.status(), '/v1/fca/status'],
-  ['fca.search', (c) => c.fca.search('acme'), '/v1/fca/search'],
-  ['fca.firm', (c) => c.fca.firm('123456'), '/v1/fca/firm/123456'],
-  ['fca.firmNames', (c) => c.fca.firmNames('123456'), '/v1/fca/firm/123456/names'],
-  [
-    'fca.firmIndividuals',
-    (c) => c.fca.firmIndividuals('123456'),
-    '/v1/fca/firm/123456/individuals',
-  ],
-  [
-    'fca.screenIndividuals',
-    (c) => c.fca.screenIndividuals('00445790'),
-    '/v1/fca/screen-individuals',
-  ],
-  ['fca.checkIndividual', (c) => c.fca.checkIndividual('Alice'), '/v1/fca/check-individual'],
   ['gleif.company', (c) => c.gleif.company('00445790'), '/v1/gleif/company'],
   [
     'individualInsolvency.screenCompany',
@@ -199,16 +205,107 @@ describe('request bodies', () => {
     ).rejects.toThrow(/at most 12/);
   });
 
-  it('repeats list filters in advanced search', async () => {
+  it('sends a single-string advanced search filter once', async () => {
     const { client: c, fetch } = client();
     await c.companies.advancedSearch({
       companyNameIncludes: 'tesco',
-      companyStatus: ['active', 'liquidation'],
+      companyStatus: 'active',
+      companyType: 'ltd',
+      sicCodes: '47110',
     });
 
     const url = new URL(fetch.mock.calls[0]![0]);
-    expect(url.searchParams.getAll('company_status')).toEqual(['active', 'liquidation']);
+    expect(url.searchParams.getAll('company_status')).toEqual(['active']);
+    expect(url.searchParams.getAll('company_type')).toEqual(['ltd']);
+    expect(url.searchParams.getAll('sic_codes')).toEqual(['47110']);
     expect(url.searchParams.get('company_name_includes')).toBe('tesco');
+  });
+
+  it('sends the charge key trimmed when extracting a registration', async () => {
+    const { client: c, fetch } = client();
+    await c.companies.extractChargeRegistration('00445790', '  094462310004 ');
+
+    expect(fetch.mock.calls[0]![1]!.method).toBe('POST');
+    expect(JSON.parse(fetch.mock.calls[0]![1]!.body as string)).toEqual({
+      charge_key: '094462310004',
+    });
+  });
+
+  it('builds the charge registration analysis body', async () => {
+    const { client: c, fetch } = client();
+    await c.analysis.chargeRegistration('00445790', ' k1 ');
+    await c.analysis.chargeRegistration('00445790', 'k1', { provider: 'claude' });
+
+    expect(JSON.parse(fetch.mock.calls[0]![1]!.body as string)).toEqual({
+      company_number: '00445790',
+      charge_key: 'k1',
+    });
+    expect(JSON.parse(fetch.mock.calls[1]![1]!.body as string)).toEqual({
+      company_number: '00445790',
+      charge_key: 'k1',
+      provider: 'claude',
+    });
+  });
+
+  it.each(['', '   '])('rejects blank charge key %j without a request', async (key) => {
+    const { client: c, fetch } = client();
+    await expect(c.companies.extractChargeRegistration('00445790', key)).rejects.toThrow(
+      /chargeKey must be a non-empty string/,
+    );
+    await expect(c.analysis.chargeRegistration('00445790', key)).rejects.toThrow(
+      /chargeKey must be a non-empty string/,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('joins report sections and rule sets with commas', async () => {
+    const { client: c, fetch } = client();
+    await c.reports.data('00445790', {
+      sections: ['assessment', 'sanctions'],
+      ruleSetIds: ['quick', 'strict'],
+      aiProvider: 'claude',
+      fcaFrn: '123456',
+      context: { accepted_gaps: ['sanctions'] },
+    });
+
+    expect(JSON.parse(fetch.mock.calls[0]![1]!.body as string)).toEqual({
+      company_number: '00445790',
+      sections: 'assessment,sanctions',
+      rule_set_ids: 'quick,strict',
+      ai_provider: 'claude',
+      fca_frn: '123456',
+      context: { accepted_gaps: ['sanctions'] },
+    });
+  });
+
+  it('passes report strings through and omits unset keys', async () => {
+    const { client: c, fetch } = client();
+    await c.reports.data('00445790', { sections: 'assessment,gleif', ruleSetIds: [] });
+    await c.reports.data('00445790');
+
+    expect(JSON.parse(fetch.mock.calls[0]![1]!.body as string)).toEqual({
+      company_number: '00445790',
+      sections: 'assessment,gleif',
+    });
+    expect(JSON.parse(fetch.mock.calls[1]![1]!.body as string)).toEqual({
+      company_number: '00445790',
+    });
+  });
+
+  it('does not retry a report that answers 503 with a long Retry-After', async () => {
+    const limited = new Response('{"detail":"required check unavailable"}', {
+      status: 503,
+      headers: { 'content-type': 'application/json', 'Retry-After': '300' },
+    });
+    const fetch = mockFetch([limited, jsonResponse({})]);
+    const c = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch });
+
+    await expect(c.reports.data('00445790')).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(ServiceUnavailableError);
+      expect((error as ServiceUnavailableError).retryAfter).toBe(300);
+      return true;
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -218,6 +315,8 @@ describe('AI endpoint timeouts', () => {
       ['analysis.company', (c, o) => c.analysis.company('00445790', o)],
       ['analysis.adverseMediaOverview', (c, o) => c.analysis.adverseMediaOverview('00445790', o)],
       ['analysis.filingExtract', (c, o) => c.analysis.filingExtract('00445790', 'tx1', o)],
+      ['analysis.chargeRegistration', (c, o) => c.analysis.chargeRegistration('00445790', 'k1', o)],
+      ['reports.data', (c, o) => c.reports.data('00445790', o)],
       ['docs.ask', (c, o) => c.docs.ask('hello', o)],
     ];
 

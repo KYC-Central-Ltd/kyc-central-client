@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-from .._transport import AsyncResource, SyncResource, _resolve_ai_timeout
+from .._transport import AsyncResource, SyncResource, _charge_key, _resolve_ai_timeout
 
 __all__ = ["Analysis", "AsyncAnalysis", "AsyncDocs", "Docs"]
 
@@ -49,6 +49,13 @@ def _filing_extract_body(
         "transaction_id": transaction_id,
         "mode": mode,
     }
+    if provider is not None:
+        body["provider"] = provider
+    return body
+
+
+def _charge_registration_body(company_number: str, charge_key: str, provider: str | None) -> JSON:
+    body: JSON = {"company_number": company_number, "charge_key": _charge_key(charge_key)}
     if provider is not None:
         body["provider"] = provider
     return body
@@ -166,6 +173,39 @@ class Analysis(SyncResource):
             timeout=_resolve_ai_timeout(self._transport.config.timeout, timeout),
         )
 
+    def charge_registration(
+        self,
+        company_number: str,
+        charge_key: str,
+        *,
+        provider: str | None = None,
+        timeout: float | None = None,
+    ) -> JSON:
+        """Read a charge's "Registration of a charge" form with a vision-capable LLM.
+
+        For forms with no text layer (paper and pre-2013 filings) — the case
+        ``companies.extract_charge_registration`` answers with ``needs_ai``.
+        Returns the same merged record, with source ``"ai_vision"``; an
+        unreadable form returns ``{"available": false, "reason": ...}``. Spends
+        AI credits on first use; a repeat call for the same charge is served from
+        the stored record.
+
+        Args:
+            charge_key: The charge code, or ``"{company_number}-{charge_number}"``
+                for pre-2013 charges.
+            timeout: Seconds to wait for this call. Defaults to 120, or the
+                client's timeout if that is longer. POSTs are never re-sent after
+                a timeout, so a slow call is not billed twice.
+
+        Raises:
+            ValueError: ``charge_key`` is blank.
+        """
+        return self._post(
+            "/analysis/charge-registration",
+            json=_charge_registration_body(company_number, charge_key, provider),
+            timeout=_resolve_ai_timeout(self._transport.config.timeout, timeout),
+        )
+
 
 class AsyncAnalysis(AsyncResource):
     """Awaitable mirror of :class:`Analysis`."""
@@ -225,6 +265,21 @@ class AsyncAnalysis(AsyncResource):
         return await self._post(
             "/analysis/filing-extract",
             json=_filing_extract_body(company_number, transaction_id, mode, provider),
+            timeout=_resolve_ai_timeout(self._transport.config.timeout, timeout),
+        )
+
+    async def charge_registration(
+        self,
+        company_number: str,
+        charge_key: str,
+        *,
+        provider: str | None = None,
+        timeout: float | None = None,
+    ) -> JSON:
+        """Read a charge's "Registration of a charge" form with a vision-capable LLM."""
+        return await self._post(
+            "/analysis/charge-registration",
+            json=_charge_registration_body(company_number, charge_key, provider),
             timeout=_resolve_ai_timeout(self._transport.config.timeout, timeout),
         )
 

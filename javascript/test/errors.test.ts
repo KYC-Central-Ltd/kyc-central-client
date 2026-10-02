@@ -73,6 +73,27 @@ describe('error bodies', () => {
     });
   });
 
+  it('exposes Retry-After on a service unavailable error', async () => {
+    const withHeader = clientWith([
+      new Response('{"detail":"down"}', {
+        status: 503,
+        headers: { 'content-type': 'application/json', 'Retry-After': '300' },
+      }),
+    ]);
+    await expect(withHeader.ruleSets.list()).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(ServiceUnavailableError);
+      expect((error as ServiceUnavailableError).retryAfter).toBe(300);
+      return true;
+    });
+
+    const without = clientWith([jsonResponse({ detail: 'down' }, 503)]);
+    await expect(without.ruleSets.list()).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(ServiceUnavailableError);
+      expect((error as ServiceUnavailableError).retryAfter).toBeUndefined();
+      return true;
+    });
+  });
+
   it('flattens validation errors into the message', async () => {
     const client = clientWith([
       jsonResponse(

@@ -31,13 +31,13 @@ class Charity(SyncResource):
         """Search registered charities by name."""
         return self._get("/charity/search", params={"q": q})
 
-    def get(self, registration_number: str, *, suffix: str | None = None) -> JSON:
+    def get(self, registration_number: str, *, suffix: int | None = None) -> JSON:
         """A charity's register entry.
 
         Args:
             registration_number: Charity registration number.
-            suffix: Subsidiary suffix, for linked charities registered under one
-                number. Defaults to the parent entry.
+            suffix: Linked-charity suffix, an integer. Defaults to 0, the main
+                charity.
         """
         return self._get(
             f"/charity/charity/{_seg(registration_number, 'registration_number')}",
@@ -62,7 +62,7 @@ class AsyncCharity(AsyncResource):
         """Search registered charities by name."""
         return await self._get("/charity/search", params={"q": q})
 
-    async def get(self, registration_number: str, *, suffix: str | None = None) -> JSON:
+    async def get(self, registration_number: str, *, suffix: int | None = None) -> JSON:
         """A charity's register entry."""
         return await self._get(
             f"/charity/charity/{_seg(registration_number, 'registration_number')}",
