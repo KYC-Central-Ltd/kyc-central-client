@@ -23,10 +23,17 @@ defmodule KYCCentral.MixProject do
     ]
   end
 
+  # Lets `mix coveralls` run without MIX_ENV=test. Never list :excoveralls in
+  # extra_applications: it is a test-only dependency, so a consumer's app would
+  # fail to start looking for it.
+  def cli do
+    [preferred_envs: [coveralls: :test, "coveralls.json": :test, "coveralls.html": :test]]
+  end
+
   def application do
     # :inets and :ssl back the default HTTP transport; both ship with OTP, which
     # is why this library needs no HTTP client dependency of its own.
-    [extra_applications: [:logger, :inets, :ssl, :public_key, :excoveralls]]
+    [extra_applications: [:logger, :inets, :ssl, :public_key]]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]

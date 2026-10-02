@@ -66,3 +66,38 @@ jobs:
           files: elixir/cover/excoveralls.json
           flags: elixir
           fail_ci_if_error: false
+
+  # A path dependency doesn't pull the package's test-only deps, so this catches a
+  # runtime application list that only works inside this repo (see 0.10.0 on Hex).
+  consumer-smoke:
+    name: Consumer smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17"
+          otp-version: "27.3"
+
+      - name: Start kyccentral from a fresh consumer app
+        working-directory: ${{ runner.temp }}
+        run: |
+          mix new consumer
+          cd consumer
+          cat > mix.exs <<EOF
+          defmodule Consumer.MixProject do
+            use Mix.Project
+
+            def project do
+              [app: :consumer, version: "0.1.0", elixir: "~> 1.15", deps: [{:kyccentral, path: "${GITHUB_WORKSPACE}/elixir"}]]
+            end
+
+            def application, do: [extra_applications: [:logger]]
+          end
+          EOF
+          mix deps.get
+          mix run -e 'case Application.ensure_all_started(:kyccentral) do
+            {:ok, apps} -> IO.inspect({:ok, apps})
+            other -> IO.inspect(other); System.halt(1)
+          end'

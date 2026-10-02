@@ -7,6 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Fixed
+
+- The package no longer lists the test-only `:excoveralls` in `extra_applications`.
+  In 0.10.0 this stopped any application depending on `kyccentral` from starting
+  (`Could not start application excoveralls`). CI now starts the library from a
+  fresh consumer project to catch this class of mistake.
+
 ## 0.1.0 — 2026-08-13
 
 First public release.
