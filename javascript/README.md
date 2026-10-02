@@ -297,6 +297,11 @@ const client = new KYCCentral({
 });
 ```
 
+The client never follows redirects (it passes `redirect: 'manual'`), so the API key is
+never sent to another host; a 3xx surfaces as an `APIStatusError` with the `Location`
+header. If you supply your own `fetch`, make sure it does not follow redirects, or at
+least does not forward `X-API-Key` to another origin.
+
 ## Rate limits and plans
 
 | Tier                      | Limit                                            |

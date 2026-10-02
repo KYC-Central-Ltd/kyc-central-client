@@ -288,6 +288,7 @@ http = fn request ->
          body: request.body,
          receive_timeout: request.receive_timeout,
          retry: false,
+         redirect: false,
          decode_body: false
        ) do
     {:ok, resp} -> {:ok, %{status: resp.status, headers: resp.headers, body: resp.body}}
@@ -302,6 +303,11 @@ The function receives `%{method:, url:, headers:, body:, receive_timeout:}` and 
 return `{:ok, %{status:, headers:, body:}}` or `{:error, reason}`. Bodies are decoded
 centrally, so returning the raw string is correct — this client's retry policy and error
 mapping then apply unchanged.
+
+The default transport never follows redirects, so the API key is never sent to another
+host; a 3xx surfaces as an `:unexpected_status` error with the `location` header. If you
+supply your own `:http` function, make sure it does not follow redirects, or at least does
+not forward `X-API-Key` to another origin.
 
 ## Calling from Erlang
 

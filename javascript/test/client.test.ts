@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   APIConnectionError,
+  APIStatusError,
   APITimeoutError,
   DEFAULT_BASE_URL,
   KYCCentral,
@@ -369,6 +370,42 @@ describe('long Retry-After values', () => {
     const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
 
     await expect(client.ruleSets.list()).rejects.toMatchObject({ statusCode: 503 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('redirects', () => {
+  it('does not follow a 3xx and surfaces it as a status error', async () => {
+    const fetch = mockFetch([
+      new Response(null, { status: 302, headers: { location: 'https://evil.example/' } }),
+    ]);
+    const client = new KYCCentral({ apiKey: 'test-key', baseUrl: BASE_URL, fetch });
+
+    const error = await client.health().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(APIStatusError);
+    expect((error as APIStatusError).statusCode).toBe(302);
+    expect((error as APIStatusError).headers.get('location')).toBe('https://evil.example/');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const init = fetch.mock.calls[0]?.[1] as RequestInit;
+    expect(init.redirect).toBe('manual');
+  });
+
+  it('raises on a browser opaque redirect without retrying', async () => {
+    const opaque = {
+      type: 'opaqueredirect',
+      status: 0,
+      ok: false,
+      headers: new Headers(),
+      clone() {
+        return this;
+      },
+    } as unknown as Response;
+    const fetch = mockFetch([opaque]);
+    const client = new KYCCentral({ apiKey: 'test-key', baseUrl: BASE_URL, fetch });
+
+    const error = await client.health().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(APIStatusError);
+    expect((error as APIStatusError).statusCode).toBe(0);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 });

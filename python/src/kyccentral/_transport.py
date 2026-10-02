@@ -247,7 +247,9 @@ class SyncTransport(_BaseTransport):
     def __init__(self, config: ClientConfig, http_client: httpx.Client | None = None) -> None:
         super().__init__(config)
         self._owns_client = http_client is None
-        self._http = http_client or httpx.Client(timeout=config.timeout, follow_redirects=True)
+        # Redirects are off: X-API-Key is a custom header that httpx would forward to
+        # another origin on a cross-origin redirect.
+        self._http = http_client or httpx.Client(timeout=config.timeout, follow_redirects=False)
 
     def request(
         self,
@@ -300,7 +302,11 @@ class AsyncTransport(_BaseTransport):
     def __init__(self, config: ClientConfig, http_client: httpx.AsyncClient | None = None) -> None:
         super().__init__(config)
         self._owns_client = http_client is None
-        self._http = http_client or httpx.AsyncClient(timeout=config.timeout, follow_redirects=True)
+        # Redirects are off: X-API-Key is a custom header that httpx would forward to
+        # another origin on a cross-origin redirect.
+        self._http = http_client or httpx.AsyncClient(
+            timeout=config.timeout, follow_redirects=False
+        )
 
     async def request(
         self,

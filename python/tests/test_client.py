@@ -375,3 +375,39 @@ def test_503_does_not_retry_when_retry_after_exceeds_max_backoff() -> None:
             client.rule_sets.list()
         assert exc_info.value.status_code == 503
     assert route.call_count == 1
+
+
+@respx.mock
+def test_redirects_are_not_followed(client: KYCCentral) -> None:
+    first = respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        return_value=httpx.Response(302, headers={"Location": "https://evil.example/v1/rule-sets"})
+    )
+    evil = respx.get("https://evil.example/v1/rule-sets").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    with pytest.raises(APIStatusError) as excinfo:
+        client.rule_sets.list()
+    assert excinfo.value.status_code == 302
+    assert excinfo.value.headers["Location"] == "https://evil.example/v1/rule-sets"
+    assert first.call_count == 1
+    assert not evil.called
+    assert respx.calls.call_count == 1
+    assert client._transport._http.follow_redirects is False
+
+
+@respx.mock
+async def test_redirects_are_not_followed_async(async_client: AsyncKYCCentral) -> None:
+    first = respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        return_value=httpx.Response(302, headers={"Location": "https://evil.example/v1/rule-sets"})
+    )
+    evil = respx.get("https://evil.example/v1/rule-sets").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    with pytest.raises(APIStatusError) as excinfo:
+        await async_client.rule_sets.list()
+    assert excinfo.value.status_code == 302
+    assert excinfo.value.headers["Location"] == "https://evil.example/v1/rule-sets"
+    assert first.call_count == 1
+    assert not evil.called
+    assert respx.calls.call_count == 1
+    assert async_client._transport._http.follow_redirects is False

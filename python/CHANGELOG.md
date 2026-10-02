@@ -7,6 +7,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Security
+
+- Redirects are no longer followed. `X-API-Key` is a custom header that the HTTP stack
+  forwarded on cross-origin redirects, so a redirect to another host could leak the key. A
+  3xx now raises a status error carrying the `Location` header.
+
 ### Changed
 
 - A `Retry-After` longer than 8 seconds is no longer cut to 8 seconds and retried (which

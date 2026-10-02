@@ -281,7 +281,11 @@ import httpx
 client = KYCCentral(http_client=httpx.Client(proxy="http://proxy.internal:8080"))
 ```
 
-You keep ownership of a client you supply — this library will not close it.
+You keep ownership of a client you supply — this library will not close it. The client
+it builds itself never follows redirects, so the API key is never sent to another host; a
+3xx surfaces as an `APIStatusError` with the `Location` header. If you supply your own
+`httpx` client, make sure it does not follow redirects (the httpx default) or at least does
+not forward `X-API-Key` to another origin.
 
 ## Rate limits and plans
 

@@ -6,7 +6,12 @@
  * runs unchanged on Node 18+, Deno, Bun, Cloudflare Workers and the browser.
  */
 
-import { APIConnectionError, APITimeoutError, statusErrorFromResponse } from './errors.js';
+import {
+  APIConnectionError,
+  APIStatusError,
+  APITimeoutError,
+  statusErrorFromResponse,
+} from './errors.js';
 
 /** Production API. Override with `baseUrl` or `KYCCENTRAL_BASE_URL`. */
 export const DEFAULT_BASE_URL = 'https://api.kyccentral.co.uk';
@@ -288,6 +293,9 @@ export class Transport {
           headers: this.headers(body !== undefined),
           body: body === undefined ? undefined : JSON.stringify(body),
           signal: combineSignals(timeoutMs, signal),
+          // Never follow redirects: `X-API-Key` is a custom header that fetch would
+          // forward to another origin. A 3xx surfaces as a status error instead.
+          redirect: 'manual',
         });
       } catch (error) {
         // A caller-supplied signal firing is an intentional cancellation, not a
@@ -307,6 +315,15 @@ export class Transport {
         }
         await sleep(retryDelayMs(attempt));
         continue;
+      }
+
+      // Browsers resolve a manual redirect as an opaque, status-0 response with no
+      // headers. Surface it explicitly; never retry it.
+      if (response.type === 'opaqueredirect') {
+        throw new APIStatusError(
+          `${method} ${url} was redirected; redirects are not followed so the API key is never sent to another origin.`,
+          { statusCode: response.status, headers: response.headers },
+        );
       }
 
       if (

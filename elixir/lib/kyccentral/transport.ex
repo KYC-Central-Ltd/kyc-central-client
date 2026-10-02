@@ -122,11 +122,7 @@ defmodule KYCCentral.Transport do
 
     url = String.to_charlist(request.url)
 
-    http_options = [
-      timeout: request.receive_timeout,
-      connect_timeout: request.receive_timeout,
-      ssl: ssl_options()
-    ]
+    http_options = httpc_options(request)
 
     options = [body_format: :binary]
 
@@ -155,6 +151,21 @@ defmodule KYCCentral.Transport do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  @doc false
+  @spec httpc_options(map()) :: keyword()
+  def httpc_options(request) do
+    [
+      timeout: request.receive_timeout,
+      connect_timeout: request.receive_timeout,
+      # `:httpc` autoredirects GETs by default. The API key travels in the
+      # custom `X-API-Key` header, which `:httpc` would forward to whatever
+      # host a redirect names, so redirects are never followed: a 3xx comes
+      # back as an ordinary status error carrying the `location` header.
+      autoredirect: false,
+      ssl: ssl_options()
+    ]
   end
 
   # `:httpc` does not verify certificates unless told to, and a client that

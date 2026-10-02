@@ -300,4 +300,26 @@ defmodule KYCCentral.ClientTest do
       assert Stub.call_count(agent) == 1
     end
   end
+
+  describe "redirects" do
+    test "a 3xx is returned as an error and never followed" do
+      {client, agent} =
+        Stub.client(
+          {302, "", %{"location" => "https://evil.example/"}},
+          max_retries: 2
+        )
+
+      assert {:error, %Error{kind: :unexpected_status, status: 302} = error} =
+               KYCCentral.RuleSets.list(client)
+
+      assert Error.header(error.headers, "location") == "https://evil.example/"
+      assert Stub.call_count(agent) == 1
+    end
+
+    test "the default :httpc transport turns autoredirect off" do
+      options = KYCCentral.Transport.httpc_options(%{receive_timeout: 1_000})
+
+      assert Keyword.fetch!(options, :autoredirect) == false
+    end
+  end
 end
