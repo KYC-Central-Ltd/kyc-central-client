@@ -72,6 +72,42 @@ def test_omits_api_key_header_when_anonymous(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @respx.mock
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_blank_explicit_api_key_means_no_key(monkeypatch: pytest.MonkeyPatch, blank: str) -> None:
+    # An explicit blank key does not fall back to the environment variable either.
+    monkeypatch.setenv(API_KEY_ENV, "env-key")
+    route = respx.get(f"{BASE_URL}/v1/jurisdictions").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    with KYCCentral(blank, base_url=BASE_URL) as client:
+        assert client.is_authenticated is False
+        client.jurisdictions.list()
+
+    assert "X-API-Key" not in route.calls[0].request.headers
+
+
+@respx.mock
+@pytest.mark.parametrize("blank", ["", "  \t"])
+def test_blank_env_api_key_means_no_key(monkeypatch: pytest.MonkeyPatch, blank: str) -> None:
+    monkeypatch.setenv(API_KEY_ENV, blank)
+    route = respx.get(f"{BASE_URL}/v1/jurisdictions").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    with KYCCentral(base_url=BASE_URL) as client:
+        assert client.is_authenticated is False
+        client.jurisdictions.list()
+
+    assert "X-API-Key" not in route.calls[0].request.headers
+
+
+@pytest.mark.asyncio
+async def test_async_blank_api_key_means_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(API_KEY_ENV, "  ")
+    async with AsyncKYCCentral(base_url=BASE_URL) as client:
+        assert client.is_authenticated is False
+
+
+@respx.mock
 def test_health_is_not_versioned(client: KYCCentral) -> None:
     respx.get(f"{BASE_URL}/health").mock(return_value=httpx.Response(200, json={"status": "ok"}))
     assert client.health() == {"status": "ok"}

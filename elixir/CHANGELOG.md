@@ -34,6 +34,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- An empty or whitespace-only API key (explicit or from `KYCCENTRAL_API_KEY`) is now
+  treated as no key, instead of reporting the client as authenticated while sending no
+  key.
 - The package no longer lists the test-only `:excoveralls` in `extra_applications`.
   In 0.10.0 this stopped any application depending on `kyccentral` from starting
   (`Could not start application excoveralls`). CI now starts the library from a

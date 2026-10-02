@@ -233,7 +233,9 @@ export class Transport {
   private readonly fetchImpl: FetchLike;
 
   constructor(options: ClientOptions = {}) {
-    this.apiKey = options.apiKey ?? readEnv(API_KEY_ENV) ?? undefined;
+    // An empty or whitespace-only key (explicit, or from the environment) means "no key".
+    const rawKey = options.apiKey ?? readEnv(API_KEY_ENV);
+    this.apiKey = rawKey !== undefined && rawKey.trim() !== '' ? rawKey : undefined;
     this.baseUrl = (options.baseUrl ?? readEnv(BASE_URL_ENV) ?? DEFAULT_BASE_URL).replace(
       /\/+$/,
       '',

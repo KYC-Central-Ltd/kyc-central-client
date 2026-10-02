@@ -50,6 +50,23 @@ describe('construction', () => {
   });
 
   it.each([
+    ['an explicit empty key', { apiKey: '' }, undefined],
+    ['an explicit whitespace key', { apiKey: '   ' }, undefined],
+    ['an empty env var', {}, ''],
+    ['a whitespace env var', {}, '  '],
+    ['an explicit empty key over a set env var', { apiKey: '' }, 'env-key'],
+  ])('treats %s as no key', async (_label, options, env) => {
+    if (env !== undefined) process.env.KYCCENTRAL_API_KEY = env;
+    const fetch = mockFetch([jsonResponse({})]);
+    const client = new KYCCentral({ baseUrl: BASE_URL, fetch, ...options });
+    expect(client.isAuthenticated).toBe(false);
+
+    await client.health();
+    const init = fetch.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers).has('X-API-Key')).toBe(false);
+  });
+
+  it.each([
     ['timeoutMs', { timeoutMs: 0 }],
     ['negative timeoutMs', { timeoutMs: -1 }],
     ['maxRetries', { maxRetries: -1 }],

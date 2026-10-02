@@ -148,7 +148,10 @@ class ClientConfig:
         max_retries: int,
         default_headers: Mapping[str, str] | None,
     ) -> ClientConfig:
-        resolved_key = api_key if api_key is not None else os.environ.get(API_KEY_ENV) or None
+        raw_key = api_key if api_key is not None else os.environ.get(API_KEY_ENV)
+        # A blank key (explicit or from the environment) means "no key"; an explicit
+        # empty string does not fall back to the environment variable.
+        resolved_key = raw_key if raw_key is not None and raw_key.strip() else None
         resolved_base = base_url or os.environ.get(BASE_URL_ENV) or DEFAULT_BASE_URL
         if max_retries < 0:
             raise ValueError("max_retries must be >= 0")
