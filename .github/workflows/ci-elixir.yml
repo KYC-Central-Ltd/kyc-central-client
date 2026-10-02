@@ -62,7 +62,7 @@ jobs:
         working-directory: elixir
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: elixir/cover/excoveralls.json
           flags: elixir
