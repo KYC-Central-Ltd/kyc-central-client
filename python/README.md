@@ -285,6 +285,9 @@ import httpx
 client = KYCCentral(http_client=httpx.Client(proxy="http://proxy.internal:8080"))
 ```
 
+The `timeout` argument is ignored when `http_client` is supplied; configure the timeout on
+that client. The per-call `timeout` on the AI endpoints still applies.
+
 You keep ownership of a client you supply — this library will not close it. The client
 it builds itself never follows redirects, so the API key is never sent to another host; a
 3xx surfaces as an `APIStatusError` with the `Location` header. If you supply your own
