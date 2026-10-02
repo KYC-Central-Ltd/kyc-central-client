@@ -129,8 +129,8 @@ per process and reuse it.
 ```ts
 assessment.companyName; // "TESCO PLC"
 assessment.riskLevel; // "medium"
-assessment.flags; // [{ code: "ACCOUNTS_OVERDUE", severity: "high", ... }]
-assessment.ruleResults; // every rule, including the ones that passed
+assessment.flags; // [{ code: "ACCOUNTS_OVERDUE", severity: "high", description, raw }]
+assessment.ruleResults; // every rule, including the ones that passed (each has `raw` too)
 assessment.checkedAt; // when this assessment ran
 assessment.dataFetchedAt; // how fresh the underlying registry data is
 ```

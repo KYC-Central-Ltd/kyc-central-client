@@ -17,6 +17,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Per-call `timeoutMs` option on the AI endpoints, defaulting to 120 s (or the client
   timeout, if longer).
+- `RiskFlag.raw` and `RuleResult.raw` hold each entry's untouched payload, as in the
+  Python and Elixir clients.
 
 ### Changed
 
@@ -41,6 +43,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   key.
 - `pollIntervalMs`/`pollTimeoutMs` of zero or less are rejected up front instead of
   polling the jobs endpoint in a tight loop.
+- `null` or non-object entries in `flags`/`rule_results` are dropped instead of becoming
+  empty `low` flags.
 
 ## 0.1.0 — 2026-08-13
 

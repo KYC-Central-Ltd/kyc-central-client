@@ -87,6 +87,20 @@ describe('assess', () => {
     ]);
   });
 
+  it('keeps raw on flags and rule results and drops non-object entries', async () => {
+    const payload = assessmentPayload();
+    payload.flags = [null, 'junk', ['x'], { code: 'X', extra: 1 }];
+    payload.rule_results = [null, 42, { code: 'R', extra: 2 }];
+    const assessment = await clientWith([jsonResponse(payload)]).kyc.assess('00445790');
+
+    expect(assessment.flags).toHaveLength(1);
+    expect(assessment.flags[0]!.code).toBe('X');
+    expect(assessment.flags[0]!.raw.extra).toBe(1);
+    expect(assessment.ruleResults).toHaveLength(1);
+    expect(assessment.ruleResults[0]!.code).toBe('R');
+    expect(assessment.ruleResults[0]!.raw.extra).toBe(2);
+  });
+
   it('treats a missing severity as unknown', async () => {
     const payload = assessmentPayload();
     delete payload.flags[0].severity;
