@@ -69,7 +69,9 @@ API owns, so it gets a real type — `Assessment` dataclass, TypeScript interfac
 struct — with severity helpers and an `is_partial` / `isPartial` / `partial?` check.
 Endpoints that proxy an upstream registry (Companies House, the FCA Register, GLEIF)
 return decoded JSON as-is, so new upstream fields reach callers without waiting on a
-client release. The untouched payload is always kept on `raw`.
+client release. The untouched payload is always kept on `raw`. A severity or risk level a
+client doesn't recognise maps to `unknown`, which ranks above `critical`, so a value added
+by a later API release is never filtered out as low risk.
 
 **Queued assessments are hidden.** A cold assessment can exceed a sensible HTTP timeout,
 so the API may answer `202 Accepted` with a job id. Every client polls `/v1/jobs/{id}` to
@@ -87,6 +89,10 @@ errors — 401, 403, 404, 422 — are never retried.
 **Anonymous use works.** Reference and lookup endpoints run without a key at a lower rate
 limit, so the libraries can be tried before signing up. Assessments and the AI endpoints
 require one.
+
+**Redirects are never followed.** The API key travels in the custom `X-API-Key` header,
+which HTTP stacks forward on cross-origin redirects, so each client turns redirects off. A
+3xx surfaces as a status error carrying the `Location` header.
 
 **Minimal dependencies.** Python depends on `httpx`; JavaScript on nothing at all
 (platform `fetch`); Elixir on `jason` alone (OTP's `:httpc`). Each exposes a hook for

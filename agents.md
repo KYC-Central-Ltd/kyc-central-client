@@ -60,6 +60,9 @@ in the other two.
   upstream registry (Companies House, FCA Register, GLEIF, …) return decoded JSON
   as-is so new upstream fields reach callers without a client release. The untouched
   payload is kept on `raw`.
+- **Unknown severities fail safe.** A severity or risk level a client doesn't recognise
+  maps to `unknown`, which ranks **above** `critical`, so it is never filtered out by
+  `flags_at_or_above`. Never coerce an unknown value to `low`.
 - **Queued assessments are hidden.** A cold assessment can exceed an HTTP timeout, so
   the API may answer `202 Accepted` with a job id. Every client polls `/v1/jobs/{id}`
   to completion and hands back a finished assessment, with an opt-out for callers who
@@ -73,6 +76,9 @@ in the other two.
   timeout, if longer), overridable per call. 401, 403, 404, 422 are never retried.
 - **Anonymous use works.** Reference and lookup endpoints run without a key at a lower
   rate limit; assessments and the AI endpoints require one.
+- **Redirects are never followed.** The key travels in the custom `X-API-Key` header,
+  which HTTP stacks forward on cross-origin redirects. Each client turns redirects off
+  in the HTTP stack it builds; a 3xx surfaces as a status error carrying `Location`.
 - **Minimal dependencies.** Python: `httpx`; JavaScript: nothing (platform `fetch`);
   Elixir: `jason` alone (OTP's `:httpc`). Each exposes a hook for a custom HTTP client.
 - **Tests are offline.** Every suite mocks or injects the transport — no network, no
