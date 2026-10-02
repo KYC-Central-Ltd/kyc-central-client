@@ -59,6 +59,17 @@ def _assess_params(
     }
 
 
+def _check_poll_args(poll_interval: float, poll_timeout: float) -> None:
+    """Reject non-positive polling parameters before any request is made.
+
+    A zero or negative interval would poll the jobs endpoint in a tight loop.
+    """
+    if not poll_interval > 0:
+        raise ValueError("poll_interval must be > 0")
+    if not poll_timeout > 0:
+        raise ValueError("poll_timeout must be > 0")
+
+
 def _is_queued(payload: Any) -> bool:
     """True when the API returned a job envelope rather than an assessment."""
     return isinstance(payload, dict) and "job_id" in payload and "company_number" not in payload
@@ -166,12 +177,14 @@ class Kyc(SyncResource):
             queued request returns the job envelope as a plain ``dict`` instead.
 
         Raises:
-            ValueError: Neither or both of ``company_number`` and ``q`` given.
+            ValueError: Neither or both of ``company_number`` and ``q`` given, or
+                ``poll_interval`` / ``poll_timeout`` is not greater than zero.
             ~kyccentral.errors.AuthenticationError: No API key configured.
             ~kyccentral.errors.NotFoundError: No such company, rule set or rule.
             ~kyccentral.errors.RateLimitError: Rate limit or monthly free quota hit.
             ~kyccentral.errors.JobTimeoutError: Queued assessment outran ``poll_timeout``.
         """
+        _check_poll_args(poll_interval, poll_timeout)
         payload = self._get(
             "/kyc/assess",
             params=_assess_params(
@@ -229,6 +242,7 @@ class AsyncKyc(AsyncResource):
         poll_timeout: float = DEFAULT_POLL_TIMEOUT,
     ) -> Assessment | JSON:
         """Assess one company against a rule set."""
+        _check_poll_args(poll_interval, poll_timeout)
         payload = await self._get(
             "/kyc/assess",
             params=_assess_params(

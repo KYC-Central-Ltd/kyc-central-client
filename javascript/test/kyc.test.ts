@@ -126,7 +126,7 @@ describe('queued assessments', () => {
     const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch });
 
     const assessment = (await client.kyc.assess('00445790', {
-      pollIntervalMs: 0,
+      pollIntervalMs: 1,
     })) as Assessment;
 
     expect(assessment.companyName).toBe('TESCO PLC');
@@ -147,7 +147,7 @@ describe('queued assessments', () => {
       jsonResponse({ job_id: 'job-123', status: 'error', error: 'upstream exploded' }),
     ]);
 
-    await expect(client.kyc.assess('00445790', { pollIntervalMs: 0 })).rejects.toThrow(
+    await expect(client.kyc.assess('00445790', { pollIntervalMs: 1 })).rejects.toThrow(
       JobFailedError,
     );
   });
@@ -155,7 +155,7 @@ describe('queued assessments', () => {
   it('throws when the result has expired', async () => {
     const client = clientWith([queued(), jsonResponse({ job_id: 'job-123', status: 'done' })]);
 
-    await expect(client.kyc.assess('00445790', { pollIntervalMs: 0 })).rejects.toThrow(
+    await expect(client.kyc.assess('00445790', { pollIntervalMs: 1 })).rejects.toThrow(
       /no longer available/,
     );
   });
@@ -164,7 +164,24 @@ describe('queued assessments', () => {
     const client = clientWith([queued(), jsonResponse({ job_id: 'job-123', status: 'running' })]);
 
     await expect(
-      client.kyc.assess('00445790', { pollIntervalMs: 1, pollTimeoutMs: 0 }),
+      client.kyc.assess('00445790', { pollIntervalMs: 50, pollTimeoutMs: 1 }),
     ).rejects.toThrow(JobTimeoutError);
+  });
+});
+
+describe('polling parameter validation', () => {
+  it.each([
+    ['pollIntervalMs', 0],
+    ['pollIntervalMs', -1],
+    ['pollTimeoutMs', 0],
+    ['pollTimeoutMs', -1],
+  ])('rejects %s = %d before any request', async (name, value) => {
+    const fetch = mockFetch([jsonResponse(assessmentPayload())]);
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch });
+
+    await expect(client.kyc.assess('00445790', { [name]: value })).rejects.toThrow(
+      new TypeError(`${name} must be > 0`),
+    );
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

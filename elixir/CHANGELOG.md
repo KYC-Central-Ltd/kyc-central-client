@@ -34,6 +34,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `:poll_interval`/`:poll_timeout` of zero or less (or not an integer) are rejected up
+  front instead of polling the jobs endpoint in a tight loop.
 - `KYC.assess(client, "")` (or a whitespace-only company number) now fails validation
   with `:invalid_argument` and makes no request, as in the Python and JavaScript clients.
 - A numeric `job_id` in a `202` assessment response is now polled instead of failing

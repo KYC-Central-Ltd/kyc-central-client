@@ -39,6 +39,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An empty or whitespace-only API key (explicit or from `KYCCENTRAL_API_KEY`) is now
   treated as no key, instead of reporting the client as authenticated while sending no
   key.
+- `pollIntervalMs`/`pollTimeoutMs` of zero or less are rejected up front instead of
+  polling the jobs endpoint in a tight loop.
 
 ## 0.1.0 — 2026-08-13
 

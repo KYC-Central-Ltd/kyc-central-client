@@ -144,7 +144,7 @@ defmodule KYCCentral.KYCTest do
         ])
 
       assert {:ok, %Assessment{company_name: "TESCO PLC"}} =
-               KYCCentral.KYC.assess(client, "00445790", poll_interval: 0)
+               KYCCentral.KYC.assess(client, "00445790", poll_interval: 1)
 
       assert Stub.call_count(agent) == 3
       assert Stub.path(agent, 1) == "/v1/jobs/job-123"
@@ -162,9 +162,30 @@ defmodule KYCCentral.KYCTest do
         ])
 
       assert {:ok, %Assessment{company_name: "TESCO PLC"}} =
-               KYCCentral.KYC.assess(client, "00445790", poll_interval: 0)
+               KYCCentral.KYC.assess(client, "00445790", poll_interval: 1)
 
       assert Stub.path(agent, 1) == "/v1/jobs/123"
+    end
+
+    test "rejects non-positive polling parameters before any request" do
+      {client, agent} = Stub.client([queued()])
+
+      for {key, value} <- [
+            poll_interval: 0,
+            poll_interval: -5,
+            poll_interval: 1.5,
+            poll_timeout: 0,
+            poll_timeout: -1,
+            poll_timeout: "10"
+          ] do
+        assert {:error, %Error{kind: :invalid_argument, message: message}} =
+                 KYCCentral.KYC.assess(client, "00445790", [{key, value}])
+
+        assert message =~ inspect(key)
+        assert message =~ "positive integer"
+      end
+
+      assert Stub.call_count(agent) == 0
     end
 
     test "returns the raw envelope when wait is false" do
@@ -182,7 +203,7 @@ defmodule KYCCentral.KYCTest do
         ])
 
       assert {:error, %Error{kind: :job_failed, job_id: "job-123", message: message}} =
-               KYCCentral.KYC.assess(client, "00445790", poll_interval: 0)
+               KYCCentral.KYC.assess(client, "00445790", poll_interval: 1)
 
       assert message =~ "upstream exploded"
     end
@@ -192,7 +213,7 @@ defmodule KYCCentral.KYCTest do
         Stub.client([queued(), Stub.json(%{"job_id" => "job-123", "status" => "done"})])
 
       assert {:error, %Error{kind: :job_failed, message: message}} =
-               KYCCentral.KYC.assess(client, "00445790", poll_interval: 0)
+               KYCCentral.KYC.assess(client, "00445790", poll_interval: 1)
 
       assert message =~ "no longer available"
     end
@@ -202,7 +223,7 @@ defmodule KYCCentral.KYCTest do
         Stub.client([queued(), Stub.json(%{"job_id" => "job-123", "status" => "running"})])
 
       assert {:error, %Error{kind: :job_timeout, job_id: "job-123"}} =
-               KYCCentral.KYC.assess(client, "00445790", poll_interval: 1, poll_timeout: 0)
+               KYCCentral.KYC.assess(client, "00445790", poll_interval: 10, poll_timeout: 1)
     end
   end
 end

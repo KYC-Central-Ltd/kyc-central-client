@@ -145,7 +145,7 @@ def test_queued_assessment_is_polled_to_completion(client: KYCCentral, assessmen
             ),
         ]
     )
-    result = client.kyc.assess("00445790", poll_interval=0)
+    result = client.kyc.assess("00445790", poll_interval=0.001)
 
     assert isinstance(result, Assessment)
     assert result.company_name == "TESCO PLC"
@@ -172,7 +172,7 @@ def test_failed_job_raises(client: KYCCentral) -> None:
         )
     )
     with pytest.raises(JobFailedError, match="upstream exploded") as excinfo:
-        client.kyc.assess("00445790", poll_interval=0)
+        client.kyc.assess("00445790", poll_interval=0.001)
     assert excinfo.value.job_id == "job-123"
 
 
@@ -185,7 +185,7 @@ def test_expired_job_result_raises(client: KYCCentral) -> None:
         return_value=httpx.Response(200, json={"job_id": "job-123", "status": "done"})
     )
     with pytest.raises(JobFailedError, match="no longer available"):
-        client.kyc.assess("00445790", poll_interval=0)
+        client.kyc.assess("00445790", poll_interval=0.001)
 
 
 @respx.mock
@@ -197,7 +197,7 @@ def test_poll_timeout_raises(client: KYCCentral) -> None:
         return_value=httpx.Response(200, json={"job_id": "job-123", "status": "running"})
     )
     with pytest.raises(JobTimeoutError, match="job-123"):
-        client.kyc.assess("00445790", poll_interval=0.01, poll_timeout=0.0)
+        client.kyc.assess("00445790", poll_interval=0.01, poll_timeout=0.001)
 
 
 @pytest.mark.asyncio
@@ -216,7 +216,7 @@ async def test_async_queued_assessment_is_polled(
             ),
         ]
     )
-    result = await async_client.kyc.assess("00445790", poll_interval=0)
+    result = await async_client.kyc.assess("00445790", poll_interval=0.001)
     assert isinstance(result, Assessment)
     assert result.risk_level is RiskLevel.MEDIUM
 
@@ -228,3 +228,36 @@ def test_clean_assessment_is_truthy(assessment_payload) -> None:
     assert result.is_clear
     assert bool(result) is True
     assert result
+
+
+_BAD_POLL_ARGS = [
+    ({"poll_interval": 0}, "poll_interval must be > 0"),
+    ({"poll_interval": -1}, "poll_interval must be > 0"),
+    ({"poll_timeout": 0}, "poll_timeout must be > 0"),
+    ({"poll_timeout": -5.0}, "poll_timeout must be > 0"),
+]
+
+
+@respx.mock
+@pytest.mark.parametrize(("kwargs", "message"), _BAD_POLL_ARGS)
+def test_assess_rejects_non_positive_poll_args(
+    client: KYCCentral, kwargs: dict[str, Any], message: str
+) -> None:
+    route = respx.get(url__startswith=f"{BASE_URL}/v1/kyc/assess")
+    with pytest.raises(ValueError, match=message):
+        client.kyc.assess("00445790", **kwargs)
+    assert route.call_count == 0
+    assert respx.calls.call_count == 0
+
+
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize(("kwargs", "message"), _BAD_POLL_ARGS)
+async def test_async_assess_rejects_non_positive_poll_args(
+    async_client: AsyncKYCCentral, kwargs: dict[str, Any], message: str
+) -> None:
+    route = respx.get(url__startswith=f"{BASE_URL}/v1/kyc/assess")
+    with pytest.raises(ValueError, match=message):
+        await async_client.kyc.assess("00445790", **kwargs)
+    assert route.call_count == 0
+    assert respx.calls.call_count == 0
