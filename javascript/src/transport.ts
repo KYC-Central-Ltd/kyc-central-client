@@ -331,11 +331,32 @@ export class Transport {
         RETRYABLE_STATUSES.has(response.status) &&
         isSafeToRetry(method, { response })
       ) {
+        // Release the connection; an unread body would otherwise pin it in the pool.
+        await response.body?.cancel().catch(() => {});
         await sleep(retryDelayMs(attempt, response));
         continue;
       }
 
-      const decoded = await decode(response);
+      // The body read can fail too (e.g. the timeout firing mid-stream). Never retry
+      // once reading has started.
+      let decoded: unknown;
+      try {
+        decoded = await decode(response);
+      } catch (error) {
+        const name = (error as { name?: unknown } | null | undefined)?.name;
+        if (name === 'TimeoutError' || name === 'AbortError') {
+          throw new APITimeoutError(
+            signal?.aborted
+              ? `${method} ${url} was aborted by the caller.`
+              : `${method} ${url} timed out while reading the response body.`,
+            error,
+          );
+        }
+        throw new APIConnectionError(
+          `${method} ${url} failed while reading the response body: ${String(error)}`,
+          error,
+        );
+      }
       if (response.ok) return decoded as T;
 
       throw statusErrorFromResponse(response.status, decoded, response.headers, method, url);

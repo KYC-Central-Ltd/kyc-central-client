@@ -409,3 +409,57 @@ describe('redirects', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('response body handling', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function fakeResponse(status: number, text: () => Promise<string>, cancel = vi.fn()): Response {
+    return {
+      status,
+      ok: status >= 200 && status < 300,
+      type: 'basic',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      body: { cancel },
+      text,
+    } as unknown as Response;
+  }
+
+  it('releases the body of a response that is retried', async () => {
+    const cancel = vi.fn(() => Promise.resolve());
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(fakeResponse(503, () => Promise.resolve(''), cancel))
+      .mockResolvedValueOnce(jsonResponse([{ id: 'default' }]));
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+
+    await expect(client.ruleSets.list()).resolves.toEqual([{ id: 'default' }]);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('raises APITimeoutError when reading the body times out, without retrying', async () => {
+    const timeout = new Error('The operation was aborted due to timeout');
+    timeout.name = 'TimeoutError';
+    const fetch = vi.fn().mockResolvedValue(fakeResponse(200, () => Promise.reject(timeout)));
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+
+    await expect(client.ruleSets.list()).rejects.toBeInstanceOf(APITimeoutError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('raises APIConnectionError when reading the body fails otherwise', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(fakeResponse(200, () => Promise.reject(new Error('socket hang up'))));
+    const client = new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+
+    await expect(client.ruleSets.list()).rejects.toBeInstanceOf(APIConnectionError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});

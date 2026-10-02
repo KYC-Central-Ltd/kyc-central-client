@@ -13,6 +13,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   forwarded on cross-origin redirects, so a redirect to another host could leak the key.
   A 3xx now raises a status error carrying the `Location` header.
 
+### Added
+
+- Per-call `timeoutMs` option on the AI endpoints, defaulting to 120 s (or the client
+  timeout, if longer).
+
 ### Changed
 
 - An unrecognised severity or risk level now maps to a new `unknown` level that ranks
@@ -26,10 +31,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   They are retried only when the connection was never established, or on 429/503 with
   `Retry-After`.
 
-### Added
+### Fixed
 
-- Per-call `timeoutMs` option on the AI endpoints, defaulting to 120 s (or the client
-  timeout, if longer).
+- Response bodies of retried requests are now released, so a burst of 5xx responses can
+  no longer exhaust the connection pool, and a timeout while reading the body raises
+  `APITimeoutError` instead of a raw `DOMException`.
 
 ## 0.1.0 — 2026-08-13
 
