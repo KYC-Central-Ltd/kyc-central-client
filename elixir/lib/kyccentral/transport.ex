@@ -10,27 +10,55 @@ defmodule KYCCentral.Transport do
   @retryable_statuses [408, 429, 500, 502, 503, 504]
   @initial_backoff_ms 500
   @max_backoff_ms 8_000
+  @ai_receive_timeout 120_000
 
   @doc """
   Issue a request, retrying transient failures.
 
   Returns the decoded body on success, or `{:error, %KYCCentral.Error{}}`.
+
+  GETs retry timeouts, connection failures and 408/429/5xx. POSTs may invoke a
+  billed LLM call, so they are retried only when the request certainly never
+  reached the server (the connection could not be established, and it was not a
+  timeout) or when the API answers 429/503 with `Retry-After`.
+
+  `:receive_timeout` in `opts` replaces the client's timeout for this request.
   """
   @spec request(KYCCentral.t(), :get | :post, String.t(), keyword()) ::
           {:ok, term()} | {:error, Error.t()}
   def request(%KYCCentral{} = client, method, path, opts \\ []) do
     url = build_url(client, path, opts[:params], Keyword.get(opts, :versioned, true))
-    attempt(client, method, url, opts[:body], 0)
+    timeout = Keyword.get(opts, :receive_timeout, client.receive_timeout)
+    attempt(client, method, url, opts[:body], timeout, 0)
   end
 
-  defp attempt(client, method, url, body, retries) do
+  @doc false
+  @spec ai_receive_timeout(KYCCentral.t(), keyword()) ::
+          {:ok, pos_integer()} | {:error, Error.t()}
+  def ai_receive_timeout(client, opts) do
+    case Keyword.fetch(opts, :receive_timeout) do
+      :error ->
+        {:ok, max(client.receive_timeout, @ai_receive_timeout)}
+
+      {:ok, timeout} when is_integer(timeout) and timeout > 0 ->
+        {:ok, timeout}
+
+      {:ok, other} ->
+        {:error,
+         Error.invalid_argument(
+           ":receive_timeout must be a positive integer (milliseconds), got #{inspect(other)}"
+         )}
+    end
+  end
+
+  defp attempt(client, method, url, body, timeout, retries) do
     verb = method |> to_string() |> String.upcase()
 
-    case perform(client, method, url, body) do
+    case perform(client, method, url, body, timeout) do
       {:ok, %{status: status} = response} when status in @retryable_statuses ->
-        if retries < client.max_retries do
+        if retries < client.max_retries and retry_status?(method, response) do
           response |> retry_delay(retries) |> sleep()
-          attempt(client, method, url, body, retries + 1)
+          attempt(client, method, url, body, timeout, retries + 1)
         else
           finish(response, verb, url)
         end
@@ -39,22 +67,37 @@ defmodule KYCCentral.Transport do
         finish(response, verb, url)
 
       {:error, reason} ->
-        if retries < client.max_retries do
+        if retries < client.max_retries and retry_error?(method, reason) do
           sleep(retry_delay(nil, retries))
-          attempt(client, method, url, body, retries + 1)
+          attempt(client, method, url, body, timeout, retries + 1)
         else
           {:error, transport_error(reason, verb, url)}
         end
     end
   end
 
-  defp perform(client, method, url, body) do
+  # A POST may already be running server-side (a billed LLM call), so it is only
+  # retried when the server has said "not processed, come back later".
+  defp retry_status?(:post, %{status: status, headers: headers}) do
+    status in [429, 503] and Error.header(headers, "retry-after") != nil
+  end
+
+  defp retry_status?(_method, _response), do: true
+
+  # A POST is only retried when the connection was certainly never established.
+  defp retry_error?(:post, {:failed_connect, details}) when is_list(details),
+    do: not nested_timeout?(details)
+
+  defp retry_error?(:post, _reason), do: false
+  defp retry_error?(_method, _reason), do: true
+
+  defp perform(client, method, url, body, timeout) do
     request = %{
       method: method,
       url: url,
       headers: headers(client, body != nil),
       body: if(body, do: Jason.encode!(body)),
-      receive_timeout: client.receive_timeout
+      receive_timeout: timeout
     }
 
     client.http.(request)

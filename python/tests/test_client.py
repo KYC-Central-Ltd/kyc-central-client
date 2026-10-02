@@ -8,6 +8,7 @@ import respx
 
 from kyccentral import (
     APIConnectionError,
+    APIStatusError,
     APITimeoutError,
     AsyncKYCCentral,
     KYCCentral,
@@ -197,4 +198,136 @@ async def test_async_client_retries() -> None:
     )
     async with AsyncKYCCentral(api_key="k", base_url=BASE_URL, max_retries=1) as client:
         assert await client.sanctions.status() == {"available": True}
+    assert route.call_count == 2
+
+
+def _post_client(**kwargs) -> KYCCentral:
+    return KYCCentral(api_key="k", base_url=BASE_URL, max_retries=2, **kwargs)
+
+
+@respx.mock
+def test_post_is_not_retried_after_a_timeout() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.ReadTimeout("slow"), httpx.Response(200, json={})]
+    )
+    with _post_client() as client:
+        with pytest.raises(APITimeoutError):
+            client.docs.ask("hi")
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_post_is_retried_after_connection_refused() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.ConnectError("refused"), httpx.Response(200, json={"ok": 1})]
+    )
+    with _post_client() as client:
+        assert client.docs.ask("hi") == {"ok": 1}
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_post_is_not_retried_after_a_connect_timeout() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.ConnectTimeout("slow"), httpx.Response(200, json={})]
+    )
+    with _post_client() as client:
+        with pytest.raises(APITimeoutError):
+            client.docs.ask("hi")
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_post_is_not_retried_on_502() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.Response(502, text="bad gateway"), httpx.Response(200, json={})]
+    )
+    with _post_client() as client:
+        with pytest.raises(APIStatusError) as info:
+            client.docs.ask("hi")
+    assert info.value.status_code == 502
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_post_is_retried_on_503_with_retry_after() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[
+            httpx.Response(503, headers={"Retry-After": "0"}, json={"detail": "later"}),
+            httpx.Response(200, json={"ok": 1}),
+        ]
+    )
+    with _post_client() as client:
+        assert client.docs.ask("hi") == {"ok": 1}
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_post_is_not_retried_on_503_without_retry_after() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.Response(503, json={"detail": "x"}), httpx.Response(200, json={})]
+    )
+    with _post_client() as client:
+        with pytest.raises(APIStatusError):
+            client.docs.ask("hi")
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_post_is_not_retried_after_an_unsafe_transport_error() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.ReadError("reset"), httpx.Response(200, json={})]
+    )
+    with _post_client() as client:
+        with pytest.raises(APIConnectionError):
+            client.docs.ask("hi")
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_get_is_retried_after_a_timeout() -> None:
+    route = respx.get(f"{BASE_URL}/v1/rule-sets").mock(
+        side_effect=[httpx.ReadTimeout("slow"), httpx.Response(200, json=[])]
+    )
+    with _post_client() as client:
+        assert client.rule_sets.list() == []
+    assert route.call_count == 2
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_async_post_is_not_retried_after_a_timeout() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.ReadTimeout("slow"), httpx.Response(200, json={})]
+    )
+    async with AsyncKYCCentral(api_key="k", base_url=BASE_URL, max_retries=2) as client:
+        with pytest.raises(APITimeoutError):
+            await client.docs.ask("hi")
+    assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_async_post_is_retried_after_connection_refused() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[httpx.ConnectError("refused"), httpx.Response(200, json={"ok": 1})]
+    )
+    async with AsyncKYCCentral(api_key="k", base_url=BASE_URL, max_retries=2) as client:
+        assert await client.docs.ask("hi") == {"ok": 1}
+    assert route.call_count == 2
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_async_post_retry_after_and_502_policy() -> None:
+    route = respx.post(f"{BASE_URL}/v1/docs/ask").mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "0"}, json={}),
+            httpx.Response(502, text="bad gateway"),
+            httpx.Response(200, json={}),
+        ]
+    )
+    async with AsyncKYCCentral(api_key="k", base_url=BASE_URL, max_retries=2) as client:
+        with pytest.raises(APIStatusError):
+            await client.docs.ask("hi")
     assert route.call_count == 2

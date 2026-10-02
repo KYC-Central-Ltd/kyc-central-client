@@ -252,9 +252,20 @@ client.sanctions.screenNames([]).catch((error) => console.log(error.message));
 
 ## Retries, timeouts and cancellation
 
-Timeouts, connection failures and retryable statuses (408, 429, 500, 502, 503, 504) are
-retried twice by default, with exponential backoff plus jitter, honouring `Retry-After`.
-Client errors like 401, 403, 404 and 422 are never retried.
+GET requests retry timeouts, connection failures and retryable statuses (408, 429, 500,
+502, 503, 504) twice by default, with exponential backoff plus jitter, honouring
+`Retry-After`. POST requests (the AI endpoints, the docs assistant and batch screening)
+are retried only when the connection was never established, or on 429/503 with a
+`Retry-After` header, so a slow AI call is never sent twice. Client errors like 401, 403,
+404 and 422 are never retried.
+
+The AI endpoints (`analysis.company`, `analysis.adverseMediaOverview`,
+`analysis.filingExtract`, `docs.ask`) default to a 120 s timeout, or the client's
+`timeoutMs` if that is longer. Override it per call:
+
+```ts
+await client.analysis.company('00445790', { timeoutMs: 180_000 });
+```
 
 ```ts
 const client = new KYCCentral({

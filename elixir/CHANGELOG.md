@@ -7,6 +7,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Changed
+
+- POST requests (AI analysis, docs assistant, batch screening) are no longer retried
+  after a timeout or a 500/502/504, which could send a billed LLM call more than once.
+  They are retried only when the connection was never established, or on 429/503 with
+  `Retry-After`.
+
+### Added
+
+- Per-call `:receive_timeout` option on the AI endpoints (`Analysis.company/3`,
+  `Analysis.adverse_media_overview/3`, `Analysis.filing_extract/4`, `Docs.ask/3`),
+  defaulting to 120 s (or the client timeout, if longer).
+
 ### Fixed
 
 - The package no longer lists the test-only `:excoveralls` in `extra_applications`.

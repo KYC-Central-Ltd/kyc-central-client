@@ -225,3 +225,101 @@ describe('retries', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('POST retry policy', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const ok = () => jsonResponse({ ok: true });
+  const post = (client: KYCCentral) => client.docs.ask('hello');
+  const make = (fetch: ReturnType<typeof vi.fn>) =>
+    new KYCCentral({ apiKey: 'k', baseUrl: BASE_URL, fetch, maxRetries: 2 });
+  const fetchError = (code: string, message = 'boom') =>
+    new TypeError('fetch failed', { cause: Object.assign(new Error(message), { code }) });
+  const timeoutError = () => {
+    const error = new Error('The operation was aborted due to timeout');
+    error.name = 'TimeoutError';
+    return error;
+  };
+
+  it('does not retry a POST that timed out', async () => {
+    const fetch = vi.fn().mockRejectedValueOnce(timeoutError()).mockResolvedValue(ok());
+    await expect(post(make(fetch))).rejects.toBeInstanceOf(APITimeoutError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a POST when the connection was refused', async () => {
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(fetchError('ECONNREFUSED', 'connect ECONNREFUSED'))
+      .mockResolvedValue(ok());
+    await expect(post(make(fetch))).resolves.toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries a POST when every happy-eyeballs address failed to connect', async () => {
+    const cause = Object.assign(new AggregateError([]), {
+      errors: [{ code: 'ECONNREFUSED' }, { code: 'ENOTFOUND' }],
+    });
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed', { cause }))
+      .mockResolvedValue(ok());
+    await expect(post(make(fetch))).resolves.toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a POST when only some happy-eyeballs addresses were refused', async () => {
+    const cause = Object.assign(new AggregateError([]), {
+      errors: [{ code: 'ECONNREFUSED' }, { code: 'ETIMEDOUT' }],
+    });
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed', { cause }))
+      .mockResolvedValue(ok());
+    await expect(post(make(fetch))).rejects.toBeInstanceOf(APIConnectionError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry a POST that gets a 502', async () => {
+    const fetch = mockFetch([jsonResponse({ detail: 'bad gateway' }, 502), ok()]);
+    await expect(post(make(fetch))).rejects.toMatchObject({ statusCode: 502 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a POST on 503 with Retry-After', async () => {
+    const limited = new Response('{}', {
+      status: 503,
+      headers: { 'content-type': 'application/json', 'Retry-After': '0' },
+    });
+    const fetch = mockFetch([limited, ok()]);
+    await expect(post(make(fetch))).resolves.toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a POST on 503 without Retry-After', async () => {
+    const fetch = mockFetch([jsonResponse({ detail: 'down' }, 503), ok()]);
+    await expect(post(make(fetch))).rejects.toMatchObject({ statusCode: 503 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry a POST on an unsafe transport error', async () => {
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(fetchError('UND_ERR_SOCKET', 'other side closed'))
+      .mockResolvedValue(ok());
+    await expect(post(make(fetch))).rejects.toBeInstanceOf(APIConnectionError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('still retries a GET that times out', async () => {
+    const fetch = vi.fn().mockRejectedValueOnce(timeoutError()).mockResolvedValue(jsonResponse([]));
+    await expect(make(fetch).ruleSets.list()).resolves.toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});

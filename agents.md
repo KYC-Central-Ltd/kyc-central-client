@@ -64,9 +64,12 @@ in the other two.
   the API may answer `202 Accepted` with a job id. Every client polls `/v1/jobs/{id}`
   to completion and hands back a finished assessment, with an opt-out for callers who
   want to drive polling themselves.
-- **Identical retry policy.** Timeouts, connection failures and 408/429/5xx retried
-  with exponential backoff + jitter, honouring `Retry-After`; 401, 403, 404, 422 are
-  never retried.
+- **Identical retry policy.** `GET`: timeouts, connection failures and 408/429/5xx
+  retried with exponential backoff + jitter, honouring `Retry-After`. `POST`
+  (non-idempotent: AI and batch endpoints): retried only when the connection was never
+  established (refused/DNS, not a timeout) or on 429/503 with `Retry-After`; never after
+  a timeout or 500/502/504. The AI endpoints default to a 120 s timeout (or the client
+  timeout, if longer), overridable per call. 401, 403, 404, 422 are never retried.
 - **Anonymous use works.** Reference and lookup endpoints run without a key at a lower
   rate limit; assessments and the AI endpoints require one.
 - **Minimal dependencies.** Python: `httpx`; JavaScript: nothing (platform `fetch`);

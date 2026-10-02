@@ -15,6 +15,8 @@ export const DEFAULT_BASE_URL = 'https://api.kyccentral.co.uk';
 export const API_PREFIX = '/v1';
 
 export const DEFAULT_TIMEOUT_MS = 30_000;
+/** Default timeout for the AI endpoints, which can run far longer than a lookup. */
+export const AI_TIMEOUT_MS = 120_000;
 export const DEFAULT_MAX_RETRIES = 2;
 
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -40,6 +42,8 @@ export interface RequestOptions {
   versioned?: boolean;
   /** Abort this individual request. Combined with the client's own timeout. */
   signal?: AbortSignal;
+  /** Replace the client's timeout for this one request, in milliseconds. */
+  timeoutMs?: number;
 }
 
 export interface ClientOptions {
@@ -109,6 +113,49 @@ function retryDelayMs(attempt: number, response?: Response): number {
   return ceiling / 2 + Math.random() * (ceiling / 2);
 }
 
+const NEVER_CONNECTED_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']);
+
+function errorCode(error: unknown): unknown {
+  return (error as { code?: unknown } | null | undefined)?.code;
+}
+
+/** True when a fetch rejection proves the request never reached the server. */
+function isConnectFailure(error: unknown): boolean {
+  if (!(error instanceof TypeError)) return false;
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause === null || cause === undefined) return false;
+  if (NEVER_CONNECTED_CODES.has(errorCode(cause) as string)) return true;
+  const errors = (cause as { errors?: unknown }).errors;
+  return (
+    Array.isArray(errors) &&
+    errors.length > 0 &&
+    errors.every((entry) => NEVER_CONNECTED_CODES.has(errorCode(entry) as string))
+  );
+}
+
+/**
+ * Whether a failed attempt may be sent again.
+ *
+ * GETs are idempotent, so any transient failure is retried. A POST may have been
+ * processed (and billed) even when the client gave up, so it is retried only when
+ * the connection was certainly never established, or when the server answered
+ * 429/503 with `Retry-After` (explicitly "not processed, come back later").
+ */
+function isSafeToRetry(
+  method: string,
+  failure: { error: unknown } | { response: Response },
+): boolean {
+  if ('error' in failure) {
+    return method === 'GET' || isConnectFailure(failure.error);
+  }
+  const { response } = failure;
+  if (!RETRYABLE_STATUSES.has(response.status)) return false;
+  if (method === 'GET') return true;
+  return (
+    (response.status === 429 || response.status === 503) && response.headers.has('Retry-After')
+  );
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -149,7 +196,7 @@ function combineSignals(timeoutMs: number, external?: AbortSignal): AbortSignal 
 export class Transport {
   readonly apiKey?: string;
   readonly baseUrl: string;
-  private readonly timeoutMs: number;
+  readonly timeoutMs: number;
   private readonly maxRetries: number;
   private readonly defaultHeaders: Record<string, string>;
   private readonly fetchImpl: FetchLike;
@@ -197,6 +244,10 @@ export class Transport {
     options: RequestOptions = {},
   ): Promise<T> {
     const { params, body, versioned = true, signal } = options;
+    if (options.timeoutMs !== undefined && !(options.timeoutMs > 0)) {
+      throw new TypeError('timeoutMs must be greater than 0');
+    }
+    const timeoutMs = options.timeoutMs ?? this.timeoutMs;
     const prefix = versioned ? API_PREFIX : '';
     const url = `${this.baseUrl}${prefix}${path.startsWith('/') ? path : `/${path}`}${buildQuery(params)}`;
 
@@ -210,7 +261,7 @@ export class Transport {
           method,
           headers: this.headers(body !== undefined),
           body: body === undefined ? undefined : JSON.stringify(body),
-          signal: combineSignals(this.timeoutMs, signal),
+          signal: combineSignals(timeoutMs, signal),
         });
       } catch (error) {
         // A caller-supplied signal firing is an intentional cancellation, not a
@@ -219,7 +270,7 @@ export class Transport {
           throw new APITimeoutError(`${method} ${url} was aborted by the caller.`, error);
         }
         lastError = error;
-        if (attempt >= this.maxRetries) {
+        if (attempt >= this.maxRetries || !isSafeToRetry(method, { error })) {
           const isTimeout = error instanceof Error && error.name === 'TimeoutError';
           throw isTimeout
             ? new APITimeoutError(
@@ -232,7 +283,11 @@ export class Transport {
         continue;
       }
 
-      if (attempt < this.maxRetries && RETRYABLE_STATUSES.has(response.status)) {
+      if (
+        attempt < this.maxRetries &&
+        RETRYABLE_STATUSES.has(response.status) &&
+        isSafeToRetry(method, { response })
+      ) {
         await sleep(retryDelayMs(attempt, response));
         continue;
       }

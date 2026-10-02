@@ -89,6 +89,7 @@ export type {
 } from './resources/companies.js';
 
 export type {
+  AICallOptions,
   AdverseMediaOverviewOptions,
   AnalyseCompanyOptions,
   DocsAskOptions,

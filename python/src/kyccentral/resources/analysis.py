@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-from .._transport import AsyncResource, SyncResource
+from .._transport import AsyncResource, SyncResource, _resolve_ai_timeout
 
 __all__ = ["Analysis", "AsyncAnalysis", "AsyncDocs", "Docs"]
 
@@ -88,6 +88,7 @@ class Analysis(SyncResource):
         sections: Sequence[str] | None = None,
         fca_frn: str | None = None,
         context: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> JSON:
         """Write a narrative risk analysis for one company.
 
@@ -103,10 +104,14 @@ class Analysis(SyncResource):
                 selected filings, analyst-confirmed identity links — folded into
                 the prompt so the analysis reflects your review rather than the
                 raw unconfirmed matches.
+            timeout: Seconds to wait for this call. Defaults to 120, or the
+                client's timeout if that is longer. POSTs are never re-sent after
+                a timeout, so a slow call is not billed twice.
         """
         return self._post(
             "/analysis/company",
             json=_company_body(company_number, rule_set_id, provider, sections, fca_frn, context),
+            timeout=_resolve_ai_timeout(self._transport.config.timeout, timeout),
         )
 
     def adverse_media_overview(
@@ -115,19 +120,27 @@ class Analysis(SyncResource):
         *,
         provider: str | None = None,
         results: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> JSON:
         """Summarise adverse media results into a short overview.
 
         Args:
             results: Search results to summarise, as returned by
                 ``client.news.screen_company()`` or ``client.news.search_names()``.
+            timeout: Seconds to wait for this call. Defaults to 120, or the
+                client's timeout if that is longer. POSTs are never re-sent after
+                a timeout, so a slow call is not billed twice.
         """
         body: JSON = {"company_number": company_number}
         if provider is not None:
             body["provider"] = provider
         if results is not None:
             body["results"] = dict(results)
-        return self._post("/analysis/adverse-media-overview", json=body)
+        return self._post(
+            "/analysis/adverse-media-overview",
+            json=body,
+            timeout=_resolve_ai_timeout(self._transport.config.timeout, timeout),
+        )
 
     def filing_extract(
         self,
@@ -136,16 +149,21 @@ class Analysis(SyncResource):
         *,
         mode: str = "extract",
         provider: str | None = None,
+        timeout: float | None = None,
     ) -> JSON:
         """Read a filing PDF with an LLM.
 
         Args:
             mode: ``"extract"`` to pull structured data out of the filing, or
                 ``"verify"`` to check an existing extraction against the document.
+            timeout: Seconds to wait for this call. Defaults to 120, or the
+                client's timeout if that is longer. POSTs are never re-sent after
+                a timeout, so a slow call is not billed twice.
         """
         return self._post(
             "/analysis/filing-extract",
             json=_filing_extract_body(company_number, transaction_id, mode, provider),
+            timeout=_resolve_ai_timeout(self._transport.config.timeout, timeout),
         )
 
 
@@ -165,11 +183,13 @@ class AsyncAnalysis(AsyncResource):
         sections: Sequence[str] | None = None,
         fca_frn: str | None = None,
         context: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> JSON:
         """Write a narrative risk analysis for one company."""
         return await self._post(
             "/analysis/company",
             json=_company_body(company_number, rule_set_id, provider, sections, fca_frn, context),
+            timeout=_resolve_ai_timeout(self._transport.config.timeout, timeout),
         )
 
     async def adverse_media_overview(
@@ -178,6 +198,7 @@ class AsyncAnalysis(AsyncResource):
         *,
         provider: str | None = None,
         results: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> JSON:
         """Summarise adverse media results into a short overview."""
         body: JSON = {"company_number": company_number}
@@ -185,7 +206,11 @@ class AsyncAnalysis(AsyncResource):
             body["provider"] = provider
         if results is not None:
             body["results"] = dict(results)
-        return await self._post("/analysis/adverse-media-overview", json=body)
+        return await self._post(
+            "/analysis/adverse-media-overview",
+            json=body,
+            timeout=_resolve_ai_timeout(self._transport.config.timeout, timeout),
+        )
 
     async def filing_extract(
         self,
@@ -194,33 +219,56 @@ class AsyncAnalysis(AsyncResource):
         *,
         mode: str = "extract",
         provider: str | None = None,
+        timeout: float | None = None,
     ) -> JSON:
         """Read a filing PDF with an LLM."""
         return await self._post(
             "/analysis/filing-extract",
             json=_filing_extract_body(company_number, transaction_id, mode, provider),
+            timeout=_resolve_ai_timeout(self._transport.config.timeout, timeout),
         )
 
 
 class Docs(SyncResource):
     """Ask questions about the product in natural language."""
 
-    def ask(self, message: str, *, history: Iterable[Mapping[str, Any]] | None = None) -> JSON:
+    def ask(
+        self,
+        message: str,
+        *,
+        history: Iterable[Mapping[str, Any]] | None = None,
+        timeout: float | None = None,
+    ) -> JSON:
         """Ask the documentation assistant a question.
 
         Args:
             message: The question. Up to 2,000 characters.
             history: Prior turns for follow-up questions, at most 12, each
                 ``{"role": "user"|"assistant", "content": "..."}``.
+            timeout: Seconds to wait for this call. Defaults to 120, or the
+                client's timeout if that is longer. POSTs are never re-sent after
+                a timeout, so a slow call is not billed twice.
         """
-        return self._post("/docs/ask", json=_docs_body(message, history))
+        return self._post(
+            "/docs/ask",
+            json=_docs_body(message, history),
+            timeout=_resolve_ai_timeout(self._transport.config.timeout, timeout),
+        )
 
 
 class AsyncDocs(AsyncResource):
     """Awaitable mirror of :class:`Docs`."""
 
     async def ask(
-        self, message: str, *, history: Iterable[Mapping[str, Any]] | None = None
+        self,
+        message: str,
+        *,
+        history: Iterable[Mapping[str, Any]] | None = None,
+        timeout: float | None = None,
     ) -> JSON:
         """Ask the documentation assistant a question."""
-        return await self._post("/docs/ask", json=_docs_body(message, history))
+        return await self._post(
+            "/docs/ask",
+            json=_docs_body(message, history),
+            timeout=_resolve_ai_timeout(self._transport.config.timeout, timeout),
+        )

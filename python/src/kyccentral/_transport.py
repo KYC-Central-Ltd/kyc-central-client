@@ -29,6 +29,9 @@ API_PREFIX = "/v1"
 """Every business endpoint is versioned. ``/health`` deliberately is not."""
 
 DEFAULT_TIMEOUT = 30.0
+AI_TIMEOUT = 120.0
+"""Default timeout (seconds) for the LLM-backed endpoints, which routinely outlast
+:data:`DEFAULT_TIMEOUT`. A client configured with a longer timeout keeps it."""
 DEFAULT_MAX_RETRIES = 2
 
 _RETRYABLE_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
@@ -86,6 +89,15 @@ def _retry_delay(attempt: int, response: httpx.Response | None) -> float:
                 pass
     ceiling = min(_INITIAL_BACKOFF * (2**attempt), _MAX_BACKOFF)
     return random.uniform(ceiling / 2, ceiling)
+
+
+def _resolve_ai_timeout(client_timeout: float, timeout: float | None) -> float:
+    """Effective timeout for an AI call: the per-call value, else ``max(client, AI)``."""
+    if timeout is not None:
+        if timeout <= 0:
+            raise ValueError("timeout must be > 0")
+        return timeout
+    return max(client_timeout, AI_TIMEOUT)
 
 
 def _decode(response: httpx.Response) -> Any:
@@ -159,8 +171,33 @@ class _BaseTransport:
     def config(self) -> ClientConfig:
         return self._config
 
-    def _should_retry(self, attempt: int, status_code: int) -> bool:
-        return attempt < self._config.max_retries and status_code in _RETRYABLE_STATUSES
+    def _should_retry(
+        self,
+        method: str,
+        attempt: int,
+        response: httpx.Response | None = None,
+        exc: Exception | None = None,
+    ) -> bool:
+        """Whether a failed attempt may be repeated.
+
+        GETs retry timeouts, transport errors and retryable statuses. A POST may be
+        a billed LLM call that is still running server-side, so it is repeated only
+        when it certainly never reached the server (the connection could not be
+        established, and it was not a timeout) or when a 429/503 carries
+        ``Retry-After`` (the server is saying "not processed, come back later").
+        """
+        if attempt >= self._config.max_retries:
+            return False
+        is_get = method.upper() == "GET"
+        if response is not None:
+            if response.status_code not in _RETRYABLE_STATUSES:
+                return False
+            if is_get:
+                return True
+            return response.status_code in (429, 503) and "Retry-After" in response.headers
+        if is_get:
+            return True
+        return isinstance(exc, httpx.ConnectError)
 
     def _finish(
         self,
@@ -196,28 +233,32 @@ class SyncTransport(_BaseTransport):
         params: Mapping[str, Any] | None = None,
         json: Any = None,
         versioned: bool = True,
+        timeout: float | None = None,
     ) -> Any:
         url = self._config.url_for(path, versioned)
         headers = self._config.headers()
         query = _clean_params(params)
+        extra: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
 
         for attempt in range(self._config.max_retries + 1):
             try:
-                response = self._http.request(method, url, params=query, json=json, headers=headers)
+                response = self._http.request(
+                    method, url, params=query, json=json, headers=headers, **extra
+                )
             except httpx.TimeoutException as exc:
-                if attempt >= self._config.max_retries:
+                if not self._should_retry(method, attempt, exc=exc):
                     raise APITimeoutError(
                         f"{method} {url} timed out after {attempt + 1} attempt(s)."
                     ) from exc
                 time.sleep(_retry_delay(attempt, None))
                 continue
             except httpx.TransportError as exc:
-                if attempt >= self._config.max_retries:
+                if not self._should_retry(method, attempt, exc=exc):
                     raise APIConnectionError(f"{method} {url} failed: {exc}") from exc
                 time.sleep(_retry_delay(attempt, None))
                 continue
 
-            if self._should_retry(attempt, response.status_code):
+            if self._should_retry(method, attempt, response):
                 time.sleep(_retry_delay(attempt, response))
                 continue
             return self._finish(response, method, url)
@@ -245,30 +286,32 @@ class AsyncTransport(_BaseTransport):
         params: Mapping[str, Any] | None = None,
         json: Any = None,
         versioned: bool = True,
+        timeout: float | None = None,
     ) -> Any:
         url = self._config.url_for(path, versioned)
         headers = self._config.headers()
         query = _clean_params(params)
+        extra: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
 
         for attempt in range(self._config.max_retries + 1):
             try:
                 response = await self._http.request(
-                    method, url, params=query, json=json, headers=headers
+                    method, url, params=query, json=json, headers=headers, **extra
                 )
             except httpx.TimeoutException as exc:
-                if attempt >= self._config.max_retries:
+                if not self._should_retry(method, attempt, exc=exc):
                     raise APITimeoutError(
                         f"{method} {url} timed out after {attempt + 1} attempt(s)."
                     ) from exc
                 await asyncio.sleep(_retry_delay(attempt, None))
                 continue
             except httpx.TransportError as exc:
-                if attempt >= self._config.max_retries:
+                if not self._should_retry(method, attempt, exc=exc):
                     raise APIConnectionError(f"{method} {url} failed: {exc}") from exc
                 await asyncio.sleep(_retry_delay(attempt, None))
                 continue
 
-            if self._should_retry(attempt, response.status_code):
+            if self._should_retry(method, attempt, response):
                 await asyncio.sleep(_retry_delay(attempt, response))
                 continue
             return self._finish(response, method, url)

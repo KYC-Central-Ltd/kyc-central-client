@@ -54,6 +54,28 @@ defmodule KYCCentral.Stub do
     {client, agent}
   end
 
+  @doc """
+  Build a client that replays `steps` in order, each either `{:error, reason}`
+  (a transport failure) or a response tuple as accepted by `client/2`. The last
+  step repeats once the list is exhausted.
+  """
+  def sequence_client(steps, opts \\ []) do
+    {:ok, agent} = Agent.start_link(fn -> %{responses: steps, calls: []} end)
+
+    http = fn request ->
+      Agent.get_and_update(agent, fn state ->
+        {result, remaining} = next_step(state.responses)
+
+        {result, %{state | responses: remaining, calls: state.calls ++ [request]}}
+      end)
+    end
+
+    client =
+      KYCCentral.new(Keyword.merge([api_key: "test-key", base_url: @base_url, http: http], opts))
+
+    {client, agent}
+  end
+
   @doc "Every request the stub has received, oldest first."
   def calls(agent), do: Agent.get(agent, & &1.calls)
 
@@ -156,6 +178,12 @@ defmodule KYCCentral.Stub do
       "pending_extractions" => []
     }
   end
+
+  defp next_step([last]), do: {step_result(last), [last]}
+  defp next_step([head | tail]), do: {step_result(head), tail}
+
+  defp step_result({:error, _reason} = error), do: error
+  defp step_result(response), do: {:ok, normalise(response)}
 
   defp next([]), do: {%{status: 200, headers: %{}, body: nil}, []}
 

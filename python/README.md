@@ -250,10 +250,19 @@ Every `APIStatusError` carries `.status_code`, `.detail`, `.body` and `.headers`
 
 ## Retries and timeouts
 
-Timeouts, connection failures and retryable statuses (408, 429, 500, 502, 503, 504) are
-retried twice by default, with exponential backoff plus jitter, honouring `Retry-After`.
-Client errors like 401, 403, 404 and 422 are never retried — they will not become true
-on a second attempt.
+GETs retry timeouts, connection failures and retryable statuses (408, 429, 500, 502, 503,
+504) twice by default, with exponential backoff plus jitter, honouring `Retry-After`.
+POSTs are retried only when the connection was never established, or on 429/503 with a
+`Retry-After` header, so a slow AI call is never sent twice. Client errors like 401, 403,
+404 and 422 are never retried — they will not become true on a second attempt.
+
+The AI endpoints (`analysis.company`, `analysis.adverse_media_overview`,
+`analysis.filing_extract`, `docs.ask`) wait up to 120 seconds by default, or the client
+timeout if that is longer. Override it per call:
+
+```python
+client.analysis.company("00445790", timeout=240.0)  # seconds, this call only
+```
 
 ```python
 client = KYCCentral(

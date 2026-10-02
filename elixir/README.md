@@ -247,10 +247,19 @@ handle a failure locally.
 
 ## Retries, timeouts and TLS
 
-Timeouts, connection failures and retryable statuses (408, 429, 500, 502, 503, 504) are
-retried twice by default, with exponential backoff plus jitter, honouring `Retry-After`.
-Client errors like 401, 403, 404 and 422 are never retried — they will not become true on
-a second attempt.
+GETs retry timeouts, connection failures and retryable statuses (408, 429, 500, 502, 503,
+504) twice by default, with exponential backoff plus jitter, honouring `Retry-After`.
+POSTs are retried only when the connection was never established, or on 429/503 with
+`Retry-After`, so a slow AI call is never sent twice. Client errors like 401, 403, 404 and
+422 are never retried — they will not become true on a second attempt.
+
+The AI endpoints (`Analysis.company/3`, `Analysis.adverse_media_overview/3`,
+`Analysis.filing_extract/4`, `Docs.ask/3`) default to a 120 s timeout, or the client's
+`:receive_timeout` if that is longer. Override it per call:
+
+```elixir
+KYCCentral.Analysis.company(client, "00445790", receive_timeout: 180_000)
+```
 
 ```elixir
 KYCCentral.new(

@@ -34,10 +34,14 @@ defmodule KYCCentral.Analysis do
     * `:context` — evidence gathered elsewhere (confirmed screening hits,
       selected filings, analyst-confirmed identity links) folded into the prompt,
       so the analysis reflects your review rather than raw unconfirmed matches.
+    * `:receive_timeout` — timeout in milliseconds for this call. Defaults to 120
+      seconds, or the client's `:receive_timeout` if that is longer. Must be a
+      positive integer.
   """
   @spec company(KYCCentral.t(), String.t(), keyword()) :: result()
   def company(client, company_number, opts \\ []) do
-    with {:ok, sections} <- validate_sections(opts[:sections]) do
+    with {:ok, sections} <- validate_sections(opts[:sections]),
+         {:ok, timeout} <- Transport.ai_receive_timeout(client, opts) do
       body =
         %{"company_number" => company_number}
         |> put_optional("rule_set_id", opts[:rule_set_id])
@@ -46,7 +50,7 @@ defmodule KYCCentral.Analysis do
         |> put_optional("fca_frn", opts[:fca_frn])
         |> put_optional("context", opts[:context])
 
-      Transport.request(client, :post, "/analysis/company", body: body)
+      Transport.request(client, :post, "/analysis/company", body: body, receive_timeout: timeout)
     end
   end
 
@@ -58,15 +62,23 @@ defmodule KYCCentral.Analysis do
     * `:provider`
     * `:results` — search results to summarise, as returned by
       `KYCCentral.News.screen_company/2` or `KYCCentral.News.search_names/2`.
+    * `:receive_timeout` — timeout in milliseconds for this call. Defaults to 120
+      seconds, or the client's `:receive_timeout` if that is longer. Must be a
+      positive integer.
   """
   @spec adverse_media_overview(KYCCentral.t(), String.t(), keyword()) :: result()
   def adverse_media_overview(client, company_number, opts \\ []) do
-    body =
-      %{"company_number" => company_number}
-      |> put_optional("provider", opts[:provider])
-      |> put_optional("results", opts[:results])
+    with {:ok, timeout} <- Transport.ai_receive_timeout(client, opts) do
+      body =
+        %{"company_number" => company_number}
+        |> put_optional("provider", opts[:provider])
+        |> put_optional("results", opts[:results])
 
-    Transport.request(client, :post, "/analysis/adverse-media-overview", body: body)
+      Transport.request(client, :post, "/analysis/adverse-media-overview",
+        body: body,
+        receive_timeout: timeout
+      )
+    end
   end
 
   @doc """
@@ -78,12 +90,16 @@ defmodule KYCCentral.Analysis do
       `"verify"` to check an existing extraction against the document. Defaults
       to `"extract"`.
     * `:provider`
+    * `:receive_timeout` — timeout in milliseconds for this call. Defaults to 120
+      seconds, or the client's `:receive_timeout` if that is longer. Must be a
+      positive integer.
   """
   @spec filing_extract(KYCCentral.t(), String.t(), String.t(), keyword()) :: result()
   def filing_extract(client, company_number, transaction_id, opts \\ []) do
     mode = Keyword.get(opts, :mode, "extract")
 
-    if mode in @filing_extract_modes do
+    with {:ok, timeout} <- Transport.ai_receive_timeout(client, opts),
+         :ok <- validate_mode(mode) do
       body =
         %{
           "company_number" => company_number,
@@ -92,13 +108,20 @@ defmodule KYCCentral.Analysis do
         }
         |> put_optional("provider", opts[:provider])
 
-      Transport.request(client, :post, "/analysis/filing-extract", body: body)
-    else
-      {:error,
-       Error.invalid_argument(
-         ":mode must be one of #{Enum.join(@filing_extract_modes, ", ")}, got #{inspect(mode)}"
-       )}
+      Transport.request(client, :post, "/analysis/filing-extract",
+        body: body,
+        receive_timeout: timeout
+      )
     end
+  end
+
+  defp validate_mode(mode) when mode in @filing_extract_modes, do: :ok
+
+  defp validate_mode(mode) do
+    {:error,
+     Error.invalid_argument(
+       ":mode must be one of #{Enum.join(@filing_extract_modes, ", ")}, got #{inspect(mode)}"
+     )}
   end
 
   defp validate_sections(nil), do: {:ok, nil}
@@ -137,10 +160,14 @@ defmodule KYCCentral.Docs do
 
     * `:history` — prior turns for follow-up questions, at most #{@max_history},
       each `%{role: "user" | "assistant", content: "..."}`.
+    * `:receive_timeout` — timeout in milliseconds for this call. Defaults to 120
+      seconds, or the client's `:receive_timeout` if that is longer. Must be a
+      positive integer.
   """
   @spec ask(KYCCentral.t(), String.t(), keyword()) :: {:ok, map()} | {:error, Error.t()}
   def ask(client, message, opts \\ []) do
     history = opts[:history] || []
+    timeout = Transport.ai_receive_timeout(client, opts)
 
     cond do
       not is_binary(message) or String.trim(message) == "" ->
@@ -152,10 +179,14 @@ defmodule KYCCentral.Docs do
            ":history accepts at most #{@max_history} turns, got #{length(history)}"
          )}
 
+      match?({:error, _}, timeout) ->
+        timeout
+
       true ->
+        {:ok, timeout} = timeout
         body = %{"message" => message}
         body = if history == [], do: body, else: Map.put(body, "history", history)
-        Transport.request(client, :post, "/docs/ask", body: body)
+        Transport.request(client, :post, "/docs/ask", body: body, receive_timeout: timeout)
     end
   end
 end
